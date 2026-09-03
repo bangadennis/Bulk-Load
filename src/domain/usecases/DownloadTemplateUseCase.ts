@@ -9,6 +9,7 @@ import { getExtensionFile, XLSX_EXTENSION } from "../../utils/files";
 import { promiseMap } from "../../utils/promises";
 import Settings from "../../webapp/logic/settings";
 import { getGeneratedTemplateId, SheetBuilder } from "../../webapp/logic/sheetBuilder";
+import { CategoryOptionOrgUnitFilter } from "../entities/AppSettings";
 import { DataForm, DataFormType, dataFormTypeMap } from "../entities/DataForm";
 import { Id, Ref } from "../entities/ReferenceObject";
 import {
@@ -119,6 +120,7 @@ export class DownloadTemplateUseCase implements UseCase {
                 populateEndDate: populateEndDate?.toDate(),
                 relationshipsOuFilter,
                 orgUnitShortName: useShortNameInOrgUnit,
+                categoryOptionOrgUnitFilter: settings.categoryOptionOrgUnitFilter,
             });
 
             // FIXME: Legacy code, sheet generator
@@ -331,6 +333,7 @@ export async function getElementMetadata({
     downloadRelationships,
     relationshipsOuFilter,
     orgUnitShortName,
+    categoryOptionOrgUnitFilter,
 }: {
     element: any;
     api: D2Api;
@@ -342,12 +345,21 @@ export async function getElementMetadata({
     downloadRelationships: boolean;
     relationshipsOuFilter?: RelationshipOrgUnitFilter;
     orgUnitShortName: boolean;
+    categoryOptionOrgUnitFilter: CategoryOptionOrgUnitFilter;
 }) {
     const elementMetadataMap = new Map();
     const endpoint = element.type === dataFormTypeMap.dataSets ? "dataSets" : "programs";
     const elementMetadata = await api.get<ElementMetadata>(`/${endpoint}/${element.id}/metadata.json`).getData();
 
-    const rawMetadata = await filterRawMetadata({ api, element, elementMetadata, orgUnitIds, startDate, endDate });
+    const rawMetadata = await filterRawMetadata({
+        api,
+        element,
+        elementMetadata,
+        orgUnitIds,
+        startDate,
+        endDate,
+        categoryOptionOrgUnitFilter,
+    });
 
     _.forOwn(rawMetadata, (value, type) => {
         if (Array.isArray(value)) {
@@ -421,7 +433,9 @@ interface Element {
     conditions:
 
      - categoryOption.startDate/endDate outside the startDate -> endDate interval
-     - categoryOption.orgUnit EMPTY or assigned to a selected data set org unit or one of its ancestors.
+     - categoryOption.orgUnit EMPTY or assigned to a selected data set org unit. Depending on the
+       categoryOptionOrgUnitFilter setting, an assignment to an ancestor of the selected org unit
+       may also be accepted.
 */
 
 async function filterRawMetadata(options: {
@@ -431,12 +445,13 @@ async function filterRawMetadata(options: {
     orgUnitIds: Id[];
     startDate: Date | undefined;
     endDate: Date | undefined;
+    categoryOptionOrgUnitFilter: CategoryOptionOrgUnitFilter;
 }): Promise<ElementMetadata & unknown> {
-    const { api, element, elementMetadata, orgUnitIds } = options;
+    const { api, element, elementMetadata, orgUnitIds, categoryOptionOrgUnitFilter } = options;
 
     if (element.type === "dataSets") {
         const categoryOptions = await getCategoryOptions(api);
-        const selectedOrgUnits = await getSelectedOrgUnits(api, element, orgUnitIds);
+        const selectedOrgUnits = await getSelectedOrgUnits(api, element, orgUnitIds, categoryOptionOrgUnitFilter);
         const categoryOptionIdsToInclude = getCategoryOptionIdsToInclude(selectedOrgUnits, categoryOptions, options);
 
         const categoryOptionCombosFiltered = elementMetadata.categoryOptionCombos.filter(coc =>
@@ -463,11 +478,19 @@ type OrgUnitPathRef = {
     path?: string;
 };
 
-async function getSelectedOrgUnits(api: D2Api, element: Element, orgUnitIds: Id[]): Promise<OrgUnitPathRef[]> {
+async function getSelectedOrgUnits(
+    api: D2Api,
+    element: Element,
+    orgUnitIds: Id[],
+    categoryOptionOrgUnitFilter: CategoryOptionOrgUnitFilter
+): Promise<OrgUnitPathRef[]> {
     const dataSetOrgUnitIds = element.organisationUnits.map(orgUnit => orgUnit.id);
     const selectedOrgUnitIds = _.isEmpty(orgUnitIds) ? dataSetOrgUnitIds : orgUnitIds;
 
     if (_.isEmpty(selectedOrgUnitIds)) return [];
+
+    // Only the "assignedAndDescendants" filter looks at ancestors, so skip requesting paths otherwise.
+    if (categoryOptionOrgUnitFilter === "assigned") return selectedOrgUnitIds.map(id => ({ id }));
 
     const orgUnitsByChunk = await promiseMap(_.chunk(selectedOrgUnitIds, 250), async orgUnitIdsChunk => {
         const { objects } = await api.models.organisationUnits

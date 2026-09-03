@@ -11,7 +11,12 @@ import {
     TextField,
 } from "@material-ui/core";
 import React, { ChangeEvent, useCallback, useMemo, useState } from "react";
-import { DuplicateToleranceUnit, Model, OrgUnitSelectionSetting } from "../../../domain/entities/AppSettings";
+import {
+    CategoryOptionOrgUnitFilter,
+    DuplicateToleranceUnit,
+    Model,
+    OrgUnitSelectionSetting,
+} from "../../../domain/entities/AppSettings";
 import i18n from "../../../utils/i18n";
 import Settings, { PermissionSetting } from "../../logic/settings";
 import { Select, SelectOption } from "../select/Select";
@@ -54,6 +59,13 @@ export default function SettingsFields(props: SettingsFieldsProps & CustomTempla
     const setOrgUnitSelection = useCallback(
         ({ value }: SelectOption) => {
             onChange(settings.update({ orgUnitSelection: value as OrgUnitSelectionSetting }));
+        },
+        [settings, onChange]
+    );
+
+    const setCategoryOptionOrgUnitFilter = useCallback(
+        ({ value }: SelectOption) => {
+            onChange(settings.update({ categoryOptionOrgUnitFilter: value as CategoryOptionOrgUnitFilter }));
         },
         [settings, onChange]
     );
@@ -120,6 +132,20 @@ export default function SettingsFields(props: SettingsFieldsProps & CustomTempla
             {
                 value: "both",
                 label: i18n.t("Select Organisation Units on template generation and import"),
+            },
+        ],
+        []
+    );
+
+    const categoryOptionOrgUnitFilterOptions: SelectOption[] = useMemo(
+        () => [
+            {
+                value: "assigned",
+                label: i18n.t("Only for their assigned Organisation Units"),
+            },
+            {
+                value: "assignedAndDescendants",
+                label: i18n.t("For their assigned Organisation Units and all descendants"),
             },
         ],
         []
@@ -255,6 +281,15 @@ export default function SettingsFields(props: SettingsFieldsProps & CustomTempla
                         onChange={setOrgUnitSelection}
                         options={orgUnitSelectionOptions}
                         value={settings.orgUnitSelection}
+                    />
+                </div>
+
+                <div className={classes.fullWidth}>
+                    <Select
+                        placeholder={i18n.t("Category options are available")}
+                        onChange={setCategoryOptionOrgUnitFilter}
+                        options={categoryOptionOrgUnitFilterOptions}
+                        value={settings.categoryOptionOrgUnitFilter}
                     />
                 </div>
             </FormGroup>
