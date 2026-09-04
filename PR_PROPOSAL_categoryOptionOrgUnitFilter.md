@@ -51,26 +51,22 @@ Attribute category option `Partner A` is assigned to `Country`.
 
 ## 2. Problem
 
-Bulk Load originally matched strictly: a category option only counted if it was
+Bulk Load currently matches strictly: a category option only counts if it's
 assigned to the exact org unit selected, not to any ancestor. In the example
 above, `Partner A` would only appear when generating directly for `Country` —
 not for `District 1` or `Facility 1a`, even though the partner is meant to
-support the whole country. This was a mismatch with DHIS2's own Data Entry
+support the whole country. This is a mismatch with DHIS2's own Data Entry
 behavior described in Section 1.
 
-A recent change corrected the matching itself, so `Partner A` now cascades down
-to every district and facility under `Country`, matching Data Entry. That part
-of the fix is right and this proposal keeps it. What it left out is
-configurability: the cascading match became the only option, with no way to
-opt into strict, assigned-only matching for instances that intentionally assign
-category options directly to every org unit they want them to appear at (for
-example, a partner that only supports specific facilities, not a whole
-country).
-
-This proposal is the completion of that fix: it keeps assigned-and-descendants
-as the default, because that's the behavior that matches DHIS2 Data Entry, and
-adds the strict mode as an explicit, opt-in alternative rather than as a
-replacement.
+This proposal fixes that mismatch and makes the fix configurable, as one piece
+of work: it changes matching to be ancestry-aware by default, so `Partner A`
+cascades down to every district and facility under `Country` and matches Data
+Entry, while adding an explicit, opt-in strict mode for instances that
+intentionally assign category options directly to every org unit they want
+them to appear at (for example, a partner that only supports specific
+facilities, not a whole country). Neither half ships without the other —
+matching Data Entry by default and making that choice configurable are both
+part of this same proposal, not a follow-up to something already merged.
 
 ## 3. Proposal
 
