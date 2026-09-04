@@ -1,152 +1,170 @@
-# Configurable org unit matching for attribute option combos
+# Dataset attribute options: organisation unit filter mode
 
-## TL;DR
+## Summary
 
-Template generation was recently changed to include an attribute option combo (a
-category option like "Funding Source" or "Program") wherever its assigned org unit
-**or any org unit below it** applies — matching the org-unit-hierarchy convention
-used throughout DHIS2 (e.g. data capture access cascading to org units below the
-ones a user is assigned to). That change was made unconditionally, with no way to
-turn it off. This PR turns it into a setting, keeping that cascading behavior as the
-default, with the old strict behavior available as an opt-out for instances that
-need it.
+Add a setting that controls whether a category option (attribute option) assigned to an organisation
+unit is treated as available only at that exact organisation unit, or also at its
+descendants, when Bulk Load generates a template.
 
-## Why this matters
+Default: **For their assigned Organisation Units and all descendants**
+Alternative: **Only for their assigned Organisation Units**
 
-Some data sets use an **attribute category combo** — a set of category options
-(e.g. "Funding Source", "Implementing Partner", "Program") that a user picks from
-when entering data, on top of the data set itself. In Maintenance, each of those
-category options can optionally be restricted to certain organisation units, so it
-only shows up where it's relevant.
+## 1. Background
 
-The convention this codebase has followed (both before and after `f0c8f803`) is that
-the restriction resolves hierarchically: assign a category option to a country, and
-it becomes available to every district and facility under that country too — not
-just the country itself. That's convenient for admins: assign once at the top, and
-it applies everywhere below.
+A data set's attribute category combo is a set of category options (e.g. "Funding
+Source", "Implementing Partner", "Program") a user picks from during data entry.
+In Maintenance, a category option can be restricted to specific organisation units.
+Bulk Load has to apply this same restriction when generating a template, so the
+workbook only offers combos that are actually valid to fill in for the org unit
+being generated for.
 
-**Example.** A category option `Global Fund` is assigned to org unit `Country`, in
-a hierarchy `Country → District → Facility`:
+The assumption this codebase works from — both before and after the commit this
+proposal follows up on — is that the restriction resolves hierarchically: assign a
+category option to a top-level org unit, and it's available to every org unit
+under it too, not just that org unit itself.
 
-| Generating a template for... | Does `Global Fund` show up? |
+### Example hierarchy used throughout this doc
+
+```
+Country
+├── District 1
+│   └── Facility 1a
+└── District 2
+
+Country 2  (unrelated country)
+```
+
+**Use case:** `Partner A` is an implementing partner supporting programs across
+an entire country. Rather than assigning `Partner A` to every district and
+facility one by one, the country office assigns it once, at the country level,
+and expects it to be selectable everywhere underneath.
+
+Attribute category option `Partner A` is assigned to `Country`.
+
+| Generating for | Available? |
 |---|---|
-| `Country` (the assigned org unit) | ✅ Yes |
-| `District` (below `Country`) | ✅ Yes |
-| `Facility` (below `District`) | ✅ Yes |
-| `Country2`, an unrelated country | ❌ No |
+| Country | Yes |
+| District 1 | Yes (under the cascading assumption above) |
+| Facility 1a | Yes (under the cascading assumption above) |
+| Country 2 | No |
 
-Bulk Load has to apply this same rule when building a template, so the workbook
-only offers combos that are actually valid to fill in for the org unit it's
-generated for.
+## 2. Problem
 
-> **A note on sourcing.** This proposal describes the descendant-cascading rule as
-> matching DHIS2's own behavior because that's the assumption `f0c8f803` was written
-> under, and it's consistent with how org-unit hierarchy is treated elsewhere in the
-> platform (e.g. a user's data capture org units implicitly include everything below
-> them). I was not able to find an explicit line in DHIS2's public documentation that
-> states this rule for category-option org-unit restriction specifically, and
-> couldn't inspect dhis2-core's validation source directly to confirm it from code.
-> If this matters for the review, it's worth confirming directly against a running
-> instance (assign a category option to a parent org unit, then check whether it's
-> offered in the Data Entry / Aggregate Data Entry app at a child org unit) before
-> relying on it as ground truth.
+Bulk Load used to match strictly: a category option only counted if it was
+assigned to the exact org unit selected, not to any ancestor. In the example
+above, `Partner A` would only appear when generating directly for `Country` —
+not for `District 1` or `Facility 1a`, even though the partner is meant to
+support the whole country.
 
-## The problem
+A recent change fixed that by matching against the org unit's full ancestry
+instead — but made it unconditional. There's no way back to the strict behavior,
+which some instances may depend on if they assign category options directly to
+every org unit they want them to appear at, rather than to a shared parent (for
+example, a partner that only supports specific facilities, not a whole country).
 
-Bulk Load's rule for this used to be **stricter than the cascading convention
-above**: a category option only counted if it was assigned to the *exact* org unit
-selected, not to any ancestor. So in the example above, `Global Fund` would only
-appear when generating directly for `Country` — never for `District` or `Facility`.
+## 3. Proposal
 
-A recent change fixed that mismatch, but it made the new "cascade down the
-hierarchy" behavior the *only* option. There's no way to go back to the old,
-stricter behavior — which some instances may be relying on if they assign category
-options directly to every org unit they want them to appear at, rather than to a
-shared parent.
+Add a setting, **categoryOptionOrgUnitFilter**, with two values:
 
-## What changes
-
-A new setting, **"Category options are available"**, lets each instance choose how
-this is resolved:
-
-| Option label in Settings | What it does | Choose this if... |
+| Value | Behavior | Choose this if |
 |---|---|---|
-| **"For their assigned Organisation Units and all descendants"** *(default — keeps current behavior)* | A category option shows up for its assigned org unit and everything below it. | You want assign-once-at-the-top-apply-everywhere-below behavior. This is right for most instances and is what the app already does today. |
-| **"Only for their assigned Organisation Units"** | A category option shows up only for the org unit(s) it's directly assigned to. | Your instance already assigns category options to every org unit individually, and depends on that narrower scope. |
+| `assignedAndDescendants` (default) | A category option is available at its assigned org unit and everything below it. | You want assign-once-at-the-top behavior, like `Partner A` supporting an entire country. Right for most instances, and what the app already does today. |
+| `assigned` | A category option is available only at the org unit(s) it's directly assigned to. | Your instance assigns category options to every org unit individually — e.g. a partner that only supports a handful of named facilities — and depends on that narrower scope. |
 
-### Where to find it
+**Where it lives:** its own section in Settings, titled with the setting's own
+label, directly below "Organisation Unit Visibility." It's not nested inside that
+section — it's an independent control.
 
-**Settings → Organisation Unit Visibility**, right below the existing
-"select org units on generation/import" option.
+**Label:** "Dataset attribute options (category options): organisation unit
+filter mode"
 
-## Will this change anything for existing instances?
+**Description shown under the dropdown:** "Controls whether a category option
+assigned to a parent organisation unit is also treated as available for its
+descendant organisation units when generating a template."
 
-No, not unless someone deliberately changes it. Instances that already had no
-opinion on this setting keep getting the cascading (descendant-aware) behavior
-that's live today — this PR just gives them an escape hatch, it doesn't flip a
-switch under anyone's feet.
+Upgrading an existing instance changes nothing by default — the fallback is
+`assignedAndDescendants`, which is what the app already does unconditionally
+today. Someone has to explicitly pick `assigned` to get the older, stricter
+behavior.
 
-## Under the hood (for reviewers)
+## 4. Worked example: exact-match mode
 
-- **Minimal change, not a rewrite.** The existing matching logic already falls
-  back to an exact-id check when an org unit has no hierarchy path available.
-  Adding the "assigned only" mode is a single early-return in
-  `getSelectedOrgUnits`: skip fetching org unit paths altogether, and hand back
-  bare IDs. The matching function itself didn't need to change.
-- **The strict mode is also the cheaper one.** Skipping the path lookup also
-  skips the extra org-unit API calls the cascading behavior needs — so
-  `"assigned"` does slightly less work, not more.
-- **Kept out of the domain layer.** The functions this setting flows through
-  (`getElementMetadata`, `filterRawMetadata`) are shared with template
-  regeneration, so they take the setting as a plain value instead of pulling in
-  the whole `Settings` class — keeping the domain layer decoupled from
-  presentation-layer settings code, per an existing `// TODO` in that file.
+Same hierarchy, `Partner A` still assigned only to `Country`:
 
-## Where this setting does — and doesn't — apply
+| Generating for | Available under `assigned`? |
+|---|---|
+| Country | Yes |
+| District 1 | No |
+| Facility 1a | No |
 
-This only affects what a **generated template offers** to fill in. It has no
-effect on **importing** a filled-in template:
+If the country office later also assigns `Partner A` directly to `District 1`
+(say, because that district's own coordination team wants it listed on their
+forms too):
 
-- Import only checks that a row's org unit belongs to the data set and that the
-  current user has access to it — it never re-checks whether the attribute
-  option combo is valid for that org unit. (Verified: no such check exists in
-  `ImportTemplateUseCase`.)
-- Whatever combo ends up in the sheet is sent to DHIS2's `dataValueSets` API as-is.
-  Whether the DHIS2 server itself re-validates the combo against the org unit at
-  that point — and with which rule — is not something this PR verifies; it's
-  outside Bulk Load's control either way.
+| Generating for | Available under `assigned`? |
+|---|---|
+| Country | Yes |
+| District 1 | Yes |
+| Facility 1a | No |
 
-In other words: choosing the stricter "assigned only" setting can only make a
-generated template *more conservative* than the app's current behavior — it may
-leave out a combo that `"assignedAndDescendants"` (or the DHIS2 server) would have
-accepted, but it never adds anything extra that wasn't already possible before this
-PR.
+Strict mode gives an admin full control through direct assignment — it just
+doesn't infer anything from the hierarchy.
 
-## Files touched
+## 5. Scope
 
-| File | What changed |
+Applies to: template generation, the metadata filtering behind it, and template
+metadata regeneration.
+
+Does not affect: importing a filled-in template, user permissions, dataset or
+category-option org-unit assignments, or DHIS2's own server-side validation.
+
+**Import specifically:** verified that `ImportTemplateUseCase`'s org-unit check
+(`validateOrgUnitAccess`) only confirms a row's org unit belongs to the data set
+and that the current user has access to it — it never re-checks whether the
+attribute option combo is valid for that org unit. Whatever combo is in the sheet
+gets sent to DHIS2's `dataValueSets` API as-is; what the server itself does with
+that at that point isn't something this proposal verifies or changes. So this
+setting can only make a generated template more conservative than before — it
+may leave out a combo the server would have accepted, but it never lets through
+anything that wasn't already possible.
+
+## 6. Implementation
+
+The existing matching function already falls back to an exact-ID check when an
+org unit has no hierarchy path available. So the whole feature is one
+early-return in `getSelectedOrgUnits`: under `assigned`, skip fetching org unit
+paths and return bare IDs. The matching function itself doesn't change.
+
+That also makes `assigned` the cheaper mode — it skips the extra org-unit API
+calls the cascading mode needs to resolve ancestry.
+
+The setting is threaded through `getElementMetadata` / `filterRawMetadata` as a
+plain value rather than the `Settings` class, since those functions are shared
+with `RegenerateTemplateMetadataUseCase` and the domain layer shouldn't take on
+another dependency on presentation-layer settings code.
+
+## 7. Files touched
+
+| File | Change |
 |---|---|
 | `src/domain/entities/AppSettings.ts` | New setting type and field |
 | `src/data/ConfigWebRepository.ts` | Default value, overridable per app-config |
 | `src/webapp/logic/settings.ts` | Read/write/update support on `Settings` |
-| `src/webapp/components/settings/SettingsFields.tsx` | New dropdown in Settings |
-| `src/domain/usecases/DownloadTemplateUseCase.ts` | Setting is read and applied when filtering combos |
-| `src/domain/usecases/RegenerateTemplateMetadataUseCase.ts` | Setting is passed through here too |
+| `src/webapp/components/settings/SettingsFields.tsx` | New dropdown and its own settings section |
+| `src/domain/usecases/DownloadTemplateUseCase.ts` | Reads and applies the setting when filtering combos |
+| `src/domain/usecases/RegenerateTemplateMetadataUseCase.ts` | Passes the setting through |
 
-## How to verify
+## 8. Manual verification
 
-1. In Maintenance, assign a category option to a parent org unit (e.g. a country).
-2. In Bulk Load Settings, set **"Category options are available"** to
-   *"Only for their assigned Organisation Units"*.
-3. Generate a template for a descendant org unit (e.g. a facility under that
-   country) — the category option should **not** appear.
-4. Switch the setting to *"For their assigned Organisation Units and all
-   descendants"* and regenerate — the category option should now appear.
+Using the example hierarchy from Section 1. Category option `Partner A` assigned
+to `Country`.
 
-`tsc --noEmit` passes; the above manual check is still pending.
-
-## Before merging
-
-- [ ] Run `yarn localize` to add the two new setting-label strings to the translation files.
-- [ ] Run `yarn lint` and `yarn test-unit`.
-- [ ] No datastore migration needed — existing settings default to the new field automatically.
+1. Set the filter mode to `assignedAndDescendants`. Generate templates for
+   `Country`, `District 1`, `Facility 1a`, and `Country 2`. Expect `Partner A`
+   on the first three, not the fourth.
+2. Switch to `assigned` and regenerate. Expect `Partner A` only on `Country`.
+3. Assign `Partner A` directly to `Facility 1a` as well. Still under `assigned`,
+   regenerate for `Facility 1a` — expect it to now appear there, and nowhere
+   else it wasn't already appearing.
+4. Switch back to `assignedAndDescendants` and regenerate for all four — expect
+   the original result from step 1.
