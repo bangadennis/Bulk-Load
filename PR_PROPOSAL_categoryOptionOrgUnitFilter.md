@@ -74,7 +74,7 @@ Add a setting, **categoryOptionOrgUnitFilter**, with two values:
 
 | Value | Behavior | Choose this if |
 |---|---|---|
-| `assignedAndDescendants` (default) | A category option is available at its assigned org unit and everything below it. | You want assign-once-at-the-top behavior, like `Partner A` supporting an entire country. Right for most instances, and what the app already does today. |
+| `assignedAndDescendants` (default) | A category option is available at its assigned org unit and everything below it. | You want assign-once-at-the-top behavior, like `Partner A` supporting an entire country, matching DHIS2 Data Entry. Right for most instances — this is a change from the app's current, strict-only behavior. |
 | `assigned` | A category option is available only at the org unit(s) it's directly assigned to. | Your instance assigns category options to every org unit individually — e.g. a partner that only supports a handful of named facilities — and depends on that narrower scope. |
 
 **Where it lives:** its own section in Settings, titled with the setting's own
@@ -88,10 +88,13 @@ filter mode"
 assigned to a parent organisation unit is also treated as available for its
 descendant organisation units when generating a template."
 
-Upgrading an existing instance changes nothing by default — the fallback is
-`assignedAndDescendants`, which is what the app already does unconditionally
-today. Someone has to explicitly pick `assigned` to get the older, stricter
-behavior.
+The app only supports strict, assigned-only matching today. This proposal
+changes the default to `assignedAndDescendants`, so upgrading does change
+generated templates for any instance that has category options assigned above
+the org units where they're actually used — that's the intended fix, since
+`assignedAndDescendants` is what matches DHIS2 Data Entry. An instance that
+wants to keep today's strict behavior after upgrading has to explicitly select
+`assigned` in Settings.
 
 ## 4. Worked example: exact-match mode
 
