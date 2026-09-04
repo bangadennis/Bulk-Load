@@ -18,10 +18,11 @@ Bulk Load has to apply this same restriction when generating a template, so the
 workbook only offers combos that are actually valid to fill in for the org unit
 being generated for.
 
-The assumption this codebase works from — both before and after the commit this
-proposal follows up on — is that the restriction resolves hierarchically: assign a
-category option to a top-level org unit, and it's available to every org unit
-under it too, not just that org unit itself.
+This matches how DHIS2's own Data Entry app resolves attribute option
+availability: open Data Entry for a given org unit, and the attribute option
+selector already reflects assignment-plus-descendants — a category option
+assigned to a top-level org unit is offered at every org unit under it too, not
+just at that org unit itself.
 
 ### Example hierarchy used throughout this doc
 
@@ -44,23 +45,32 @@ Attribute category option `Partner A` is assigned to `Country`.
 | Generating for | Available? |
 |---|---|
 | Country | Yes |
-| District 1 | Yes (under the cascading assumption above) |
-| Facility 1a | Yes (under the cascading assumption above) |
+| District 1 | Yes |
+| Facility 1a | Yes |
 | Country 2 | No |
 
 ## 2. Problem
 
-Bulk Load used to match strictly: a category option only counted if it was
+Bulk Load originally matched strictly: a category option only counted if it was
 assigned to the exact org unit selected, not to any ancestor. In the example
 above, `Partner A` would only appear when generating directly for `Country` —
 not for `District 1` or `Facility 1a`, even though the partner is meant to
-support the whole country.
+support the whole country. This was a mismatch with DHIS2's own Data Entry
+behavior described in Section 1.
 
-A recent change fixed that by matching against the org unit's full ancestry
-instead — but made it unconditional. There's no way back to the strict behavior,
-which some instances may depend on if they assign category options directly to
-every org unit they want them to appear at, rather than to a shared parent (for
-example, a partner that only supports specific facilities, not a whole country).
+A recent change corrected the matching itself, so `Partner A` now cascades down
+to every district and facility under `Country`, matching Data Entry. That part
+of the fix is right and this proposal keeps it. What it left out is
+configurability: the cascading match became the only option, with no way to
+opt into strict, assigned-only matching for instances that intentionally assign
+category options directly to every org unit they want them to appear at (for
+example, a partner that only supports specific facilities, not a whole
+country).
+
+This proposal is the completion of that fix: it keeps assigned-and-descendants
+as the default, because that's the behavior that matches DHIS2 Data Entry, and
+adds the strict mode as an explicit, opt-in alternative rather than as a
+replacement.
 
 ## 3. Proposal
 
