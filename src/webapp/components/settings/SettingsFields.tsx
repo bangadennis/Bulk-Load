@@ -283,14 +283,25 @@ export default function SettingsFields(props: SettingsFieldsProps & CustomTempla
                         value={settings.orgUnitSelection}
                     />
                 </div>
+            </FormGroup>
 
+            <h3 className={classes.title}>
+                {i18n.t("Dataset attribute options (category options): organisation unit filter mode")}
+            </h3>
+
+            <FormGroup className={classes.content} row={true}>
                 <div className={classes.fullWidth}>
                     <Select
-                        placeholder={i18n.t("Category options are available")}
                         onChange={setCategoryOptionOrgUnitFilter}
                         options={categoryOptionOrgUnitFilterOptions}
                         value={settings.categoryOptionOrgUnitFilter}
                     />
+
+                    <p className={classes.categoryOptionFilterDescription}>
+                        {i18n.t(
+                            "Controls whether a category option assigned to a parent organisation unit is also treated as available for its descendant organisation units when generating a template."
+                        )}
+                    </p>
                 </div>
             </FormGroup>
 
@@ -486,4 +497,5 @@ const useStyles = makeStyles({
     eventDateTime: { marginBottom: 15, alignItems: "center" },
     duplicateTolerance: { margin: 0, marginRight: 15, width: 35 },
     duplicateToleranceLabel: { margin: 0, marginRight: 15, alignSelf: "center" },
+    categoryOptionFilterDescription: { fontSize: 13, color: "rgba(0, 0, 0, 0.6)", margin: 0, marginTop: 6 },
 });
