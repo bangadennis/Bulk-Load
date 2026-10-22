@@ -12,6 +12,7 @@ import { Relationship } from "../entities/Relationship";
 import {
     CellDataSource,
     CellRef,
+    ColumnDataSource,
     ColumnRef,
     DataSource,
     DataSourceValue,
@@ -73,6 +74,9 @@ export class ExcelReader {
                 case "row":
                     (await this.readByRow(template, dataSource, dataForm)).map(item => data.push(item));
                     break;
+                case "column":
+                    (await this.readByColumn(template, dataSource)).map(item => data.push(item));
+                    break;
                 case "rowTei":
                     (await this.readTeiRows(template, dataSource, dataForm)).map(item => teis.push(item));
                     break;
@@ -83,7 +87,7 @@ export class ExcelReader {
                     (await this.readTeiEvents(template, dataSource, teis, dataForm)).map(item => data.push(item));
                     break;
                 default:
-                    throw new Error(`Type ${dataSource.type} not supported`);
+                    throw new Error(`Type ${(dataSource as { type: string }).type} not supported`);
             }
         }
 
@@ -191,6 +195,66 @@ export class ExcelReader {
                         optionId: optionId ? removeCharacters(optionId) : undefined,
                         contentType: contentType,
                         column: this.parseColumn(cell.ref),
+                    },
+                ],
+            };
+        });
+
+        return _.compact(values);
+    }
+
+    // Transposed layout: data elements (and category option combos) are rows, org unit, period and
+    // attribute option combo are read from the header rows of the column of each value.
+    private async readByColumn(template: Template, dataSource: ColumnDataSource): Promise<TemplateDataPackageData[]> {
+        const cells = await this.excelRepository.getCellsInRange(template.id, dataSource.range);
+
+        const values = await promiseMap(cells, async cell => {
+            const value = await this.readCellValue(template, cell);
+            if (!isDefined(value) || value === "") return undefined;
+
+            const [orgUnit, period, dataElement] = await Promise.all([
+                this.readCellValue(template, dataSource.orgUnit, cell),
+                this.readCellValue(template, dataSource.period, cell),
+                this.readCellValue(template, dataSource.dataElement, cell),
+            ]);
+            if (!orgUnit || !period || !dataElement) return undefined;
+
+            const dataFormId = await this.readCellValue(template, template.dataFormId, cell);
+            if (!dataFormId) return undefined;
+
+            const [category, attribute, completedRaw, optionId, contentType] = await Promise.all([
+                this.readCellValue(template, dataSource.categoryOption, cell),
+                this.readCellValue(template, dataSource.attribute, cell),
+                this.readCellValue(template, dataSource.completed, cell),
+                this.excelRepository.readCell(template.id, cell, { formula: true }),
+                this.excelRepository.getContentType(template.id, cell),
+            ]);
+
+            const column = this.parseColumn(cell.ref);
+
+            return {
+                // Value columns are the data entries, so group by column instead of by row
+                group: column,
+                sheet: String(dataSource.range.sheet),
+                dataForm: this.formatValue(dataFormId),
+                id: undefined,
+                orgUnit: this.formatValue(orgUnit),
+                period: this.formatValue(period),
+                attribute: attribute ? this.formatValue(attribute) : undefined,
+                coordinate: undefined,
+                trackedEntityInstance: undefined,
+                programStage: undefined,
+                geometry: undefined,
+                completed: parseBooleanCell(completedRaw),
+                dataValues: [
+                    {
+                        dataElement: this.formatValue(dataElement),
+                        category: category ? this.formatValue(category) : undefined,
+                        value: this.formatValue(value),
+                        optionId: optionId ? removeCharacters(optionId) : undefined,
+                        contentType: contentType,
+                        column: column,
+                        row: this.excelRepository.buildRowNumber(cell.ref),
                     },
                 ],
             };
@@ -573,7 +637,7 @@ export class ExcelReader {
                     .map(sheet => (sheet.name.match(dataSource.sheetsMatch) ? setSheet(dataSource, sheet.name) : null))
                     .compact()
                     .value();
-            } else if (dataSource.type === "row") {
+            } else if (dataSource.type === "row" || dataSource.type === "column") {
                 return setDataEntrySheet(dataSource, sheets);
             } else {
                 return [dataSource];

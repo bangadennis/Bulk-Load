@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-04T03:02:52.457Z\n"
-"PO-Revision-Date: 2026-09-04T03:02:52.457Z\n"
+"POT-Creation-Date: 2026-10-22T18:43:06.487Z\n"
+"PO-Revision-Date: 2026-10-22T18:43:06.489Z\n"
 
 msgid "Events - Create/update"
 msgstr ""
@@ -669,13 +669,16 @@ msgstr ""
 msgid "Advanced"
 msgstr ""
 
-msgid "Basic (only row schema)"
+msgid "Basic"
 msgstr ""
 
 msgid "Data Source Configuration"
 msgstr ""
 
 msgid "Fixed Metadata / Dynamic Metadata (TODO)"
+msgstr ""
+
+msgid "Data elements as rows (data entries as columns)"
 msgstr ""
 
 msgid "Styles"
@@ -849,6 +852,30 @@ msgid "Category Option - Sheet"
 msgstr ""
 
 msgid "Category Option - Row"
+msgstr ""
+
+msgid "Layout"
+msgstr ""
+
+msgid "Organisation Unit - Row"
+msgstr ""
+
+msgid "Period - Row"
+msgstr ""
+
+msgid "Attribute - Row"
+msgstr ""
+
+msgid "Completed - Sheet"
+msgstr ""
+
+msgid "Completed - Row (optional)"
+msgstr ""
+
+msgid "Data Element - Column"
+msgstr ""
+
+msgid "Category Option - Column"
 msgstr ""
 
 msgid "Coordinates Latitude - Sheet"

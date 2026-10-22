@@ -44,6 +44,40 @@ Notes:
 $ yarn test
 ```
 
+## Data sets with data elements as rows (transposed layout)
+
+By default a data set template has one data entry per row (org unit, period, ... in the first columns) and the
+data elements as columns. The **transposed layout** has the data elements (and category option combos) as rows and
+one data entry per column, with the org unit, period, attribute option combo and completed flag in header rows.
+
+- **Generated template**: tick "Data elements as rows (data entries as columns)" in the download page (data sets,
+  no custom template). It uses the template `DATASET_GENERATED_v4` (50 entry columns per sheet).
+- **Custom template**: in the Settings > Templates dialog, basic mode, data sets, enable "Data elements as rows"
+  and set the header rows (org unit, period, attribute, optional completed), the data element and category option
+  combo columns, and the first value cell (range starting row/column). It is saved as a `column` data source:
+
+```json
+{
+    "type": "column",
+    "orgUnit": { "type": "row", "sheet": "Form", "ref": 3 },
+    "period": { "type": "row", "sheet": "Form", "ref": 4 },
+    "attribute": { "type": "row", "sheet": "Form", "ref": 5 },
+    "completed": { "type": "row", "sheet": "Form", "ref": 6 },
+    "range": { "sheet": "Form", "rowStart": 8, "columnStart": "D" },
+    "dataElement": { "type": "column", "sheet": "Form", "ref": "A" },
+    "categoryOption": { "type": "column", "sheet": "Form", "ref": "B" }
+}
+```
+
+Notes for custom templates:
+
+- The data element and category option combo cells can be formulas (`_ID` defined names, as in the generated
+  templates) or plain text IDs. The last data row is the last row with a data element in its column, unless the
+  range defines `rowEnd`.
+- Do not combine it with `fixedOrgUnit`/`fixedPeriod` (those are for a single data entry per sheet).
+- Import only uses the data sources and the template version stored in the file, so it works the same for any
+  layout (row layout, generated transposed, custom transposed).
+
 ## Build app ZIP
 
 ```

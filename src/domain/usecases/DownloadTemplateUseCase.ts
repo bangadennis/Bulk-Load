@@ -49,6 +49,8 @@ export interface DownloadTemplateProps {
     templateId: string;
     templateType: TemplateType;
     splitDataEntryTabsBySection: boolean;
+    // Data sets only: data elements as rows, data entries (org unit + period) as columns
+    transposed?: boolean;
     useCodesForMetadata: boolean;
     showLanguage: boolean;
     showPeriod: boolean;
@@ -88,6 +90,7 @@ export class DownloadTemplateUseCase implements UseCase {
             templateId: customTemplateId,
             templateType,
             splitDataEntryTabsBySection,
+            transposed,
             useCodesForMetadata,
             showLanguage,
             orgUnitShortName,
@@ -96,7 +99,9 @@ export class DownloadTemplateUseCase implements UseCase {
 
         const useShortNameInOrgUnit = orgUnitShortName || false;
         const templateId =
-            templateType === "custom" && customTemplateId ? customTemplateId : getGeneratedTemplateId(type);
+            templateType === "custom" && customTemplateId
+                ? customTemplateId
+                : getGeneratedTemplateId(type, { transposed });
         const currentUser = await this.usersRepository.getCurrentUser();
         const template = await this.templateRepository.getTemplate(templateId);
         const theme = themeId ? await this.templateRepository.getTheme(themeId) : undefined;

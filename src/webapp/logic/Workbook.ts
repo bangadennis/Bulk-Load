@@ -233,6 +233,7 @@ interface ConditionalFormatting {
 }
 
 type Position = "center";
+type HorizontalPosition = Position | "left";
 
 interface Validation {
     type: "list" | "custom" | "textLength";
@@ -252,7 +253,7 @@ export type StyleOptions = RecursivePartial<StyleOptions_>;
 
 interface StyleOptions_ {
     alignment: {
-        horizontal: Position;
+        horizontal: HorizontalPosition;
         vertical: Position;
         wrapText: boolean;
         shrinkToFit: boolean;

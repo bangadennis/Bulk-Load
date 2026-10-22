@@ -9,6 +9,7 @@ import { Relationship } from "../entities/Relationship";
 import {
     CellDataSource,
     CellRef,
+    ColumnDataSource,
     DataSource,
     DataSourceValue,
     DownloadCustomizationOptions,
@@ -78,6 +79,9 @@ export class ExcelBuilder {
                     case "row":
                         await this.fillRows(template, dataSource, templatePayload, multiTextLookup);
                         break;
+                    case "column":
+                        await this.fillColumns(template, dataSource, templatePayload, multiTextLookup);
+                        break;
                     case "rowTei":
                         await this.fillTeiRows(template, dataSource, templatePayload);
                         break;
@@ -95,7 +99,7 @@ export class ExcelBuilder {
                         await this.fillTrackerRelationshipRows(template, dataSource, payload);
                         break;
                     default:
-                        throw new Error(`Type ${dataSource.type} not supported`);
+                        throw new Error(`Type ${(dataSource as { type: string }).type} not supported`);
                 }
             }
         }
@@ -115,7 +119,7 @@ export class ExcelBuilder {
                     .map(sheet => (sheet.name.match(dataSource.sheetsMatch) ? setSheet(dataSource, sheet.name) : null))
                     .compact()
                     .value();
-            } else if (dataSource.type === "row") {
+            } else if (dataSource.type === "row" || dataSource.type === "column") {
                 return setDataEntrySheet(dataSource, sheets);
             } else {
                 return [dataSource];
@@ -681,9 +685,77 @@ export class ExcelBuilder {
         }
     }
 
+    // Transposed layout: each data entry takes a value column (header rows: org unit, period...),
+    // and each row of the column is a data element / category option combo.
+    private async fillColumns(
+        template: Template,
+        dataSource: ColumnDataSource,
+        payload: TemplateDataPackage,
+        multiTextLookup: MultiTextLookup
+    ) {
+        // buildColumnNumber is 0-based ("A" -> 0) while buildColumnName is 1-based (1 -> "A")
+        const firstColumn = this.excelRepository.buildColumnNumber(dataSource.range.columnStart) + 1;
+        // Data element cells are formulas (no cached value), so the sheet row count cannot be used here
+        const rowEnd = dataSource.range.rowEnd ?? (await this.findLastDataElementRow(template, dataSource));
+
+        for (const [index, entry] of payload.dataEntries.entries()) {
+            const column = this.excelRepository.buildColumnName(firstColumn + index);
+            const cells = await this.excelRepository.getCellsInRange(template.id, {
+                ...dataSource.range,
+                columnStart: column,
+                columnEnd: column,
+                rowEnd,
+            });
+            const firstCell = cells[0];
+            if (!firstCell) {
+                console.warn(`[fillColumns] No cells for data entry ${index + 1} (column ${column}), skipped`);
+                continue;
+            }
+
+            const orgUnitCell = await this.findRelative(template, dataSource.orgUnit, firstCell);
+            if (orgUnitCell && entry.orgUnit) {
+                await this.excelRepository.writeCell(template.id, orgUnitCell, entry.orgUnit);
+            }
+
+            const periodCell = await this.findRelative(template, dataSource.period, firstCell);
+            if (periodCell) await this.excelRepository.writeCell(template.id, periodCell, entry.period);
+
+            const attributeCell = await this.findRelative(template, dataSource.attribute, firstCell);
+            if (attributeCell && entry.attribute) {
+                await this.excelRepository.writeCell(template.id, attributeCell, entry.attribute);
+            }
+
+            await this.writeCompletedCell(template, dataSource.completed, firstCell, entry.completed);
+
+            const dataElementsToProcess = await this.resolveDataElementValues(
+                template,
+                dataSource,
+                cells,
+                entry.dataValues
+            );
+
+            await this.applyRulesAndWrite(template, dataSource, dataElementsToProcess, multiTextLookup);
+        }
+    }
+
+    // Last row (from the start of the range) with a data element: either a value (plain ids/names typed
+    // in custom templates) or a formula (generated templates, which have no cached value).
+    private async findLastDataElementRow(template: Template, dataSource: ColumnDataSource): Promise<number> {
+        const { rowStart, columnStart, sheet } = dataSource.range;
+
+        for (let row = rowStart; ; row++) {
+            const rowCell: CellRef = { type: "cell", sheet, ref: `${columnStart}${row}` };
+            const dataElementCell = await this.findRelative(template, dataSource.dataElement, rowCell);
+            const content = dataElementCell
+                ? await this.excelRepository.readCell(template.id, dataElementCell)
+                : undefined;
+            if (isBlankContent(content)) return row - 1;
+        }
+    }
+
     private async resolveCellDataElement(
         template: Template,
-        dataSource: RowDataSource,
+        dataSource: RowDataSource | ColumnDataSource,
         cell: CellRef
     ): Promise<Maybe<{ dataElement: string; category: Maybe<string> }>> {
         const dataElementCell = await this.findRelative(template, dataSource.dataElement, cell);
@@ -702,7 +774,7 @@ export class ExcelBuilder {
 
     private async resolveDataElementValues(
         template: Template,
-        dataSource: RowDataSource,
+        dataSource: RowDataSource | ColumnDataSource,
         cells: CellRef[],
         dataValues: TemplateDataPackageData["dataValues"]
     ): Promise<DataToProcess[]> {
@@ -723,7 +795,7 @@ export class ExcelBuilder {
 
     private async applyRulesAndWrite(
         template: Template,
-        dataSource: RowDataSource,
+        dataSource: RowDataSource | ColumnDataSource,
         dataElementsToProcess: DataToProcess[],
         multiTextLookup: MultiTextLookup
     ): Promise<void> {
@@ -807,3 +879,7 @@ type MultiTextLookup = {
 };
 
 export const MULTI_TEXT_OPTION_DELIMITER = ",";
+
+function isBlankContent(content: unknown): boolean {
+    return content === undefined || content === null || content === "";
+}
