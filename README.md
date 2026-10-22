@@ -51,7 +51,8 @@ data elements as columns. The **transposed layout** has the data elements (and c
 one data entry per column, with the org unit, period, attribute option combo and completed flag in header rows.
 
 - **Generated template**: tick "Data elements as rows (data entries as columns)" in the download page (data sets,
-  no custom template). It uses the template `DATASET_GENERATED_v4` (50 entry columns per sheet).
+  no custom template). It uses the template `DATASET_GENERATED_v4`, with 100 entry columns per sheet. The dropdowns
+  of the header rows cover the whole row, so more entries can be added by hand.
 - **Custom template**: in the Settings > Templates dialog, basic mode, data sets, enable "Data elements as rows"
   and set the header rows (org unit, period, attribute, optional completed), the data element and category option
   combo columns, and the first value cell (range starting row/column). It is saved as a `column` data source:

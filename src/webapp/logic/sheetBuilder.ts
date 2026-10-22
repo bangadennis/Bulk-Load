@@ -25,9 +25,11 @@ const teiSheetName = "TEI Instances";
 const maxRow = 1048576;
 
 // Transposed data set layout (data elements as rows): every value column is a data entry
-// (org unit + period + attribute). Positions are read from the template column data source,
-// these are the defaults when the data source does not define them.
-const transposedLayoutDefaults = { valueColumns: 50 };
+// (org unit + period + attribute). Positions are read from the template column data source.
+// Fixed number of styled entry columns (styling is created cell by cell, so more columns make a larger file).
+// The dropdowns cover the whole row, so more entries can be added by hand.
+const transposedEntryColumnsCount = 100;
+const lastExcelColumnName = "XFD";
 
 // Soft colors (one per section / data element) for the transposed layout, when no theme is selected
 const transposedPalette = ["FFF3C4", "FDDDC3", "F8D2D2", "E6D6F2", "D6E0F5", "D3ECEF", "DCEFD6"];
@@ -1200,7 +1202,7 @@ export class SheetBuilder {
         const firstValueColumn = Excel.getColumnIndex(columnStart);
         const lastValueColumn = columnEnd
             ? Excel.getColumnIndex(columnEnd)
-            : firstValueColumn + transposedLayoutDefaults.valueColumns - 1;
+            : firstValueColumn + transposedEntryColumnsCount - 1;
 
         return {
             orgUnitRow,
@@ -1212,6 +1214,7 @@ export class SheetBuilder {
             categoryOptionComboColumn,
             firstValueColumn,
             lastValueColumn,
+            hasFixedLastColumn: Boolean(columnEnd),
         };
     }
 
@@ -1230,7 +1233,10 @@ export class SheetBuilder {
         const layout = this.getTransposedLayout(dataEntrySheet);
         const lang = { lng: this.builder.language };
         const firstValueAlpha = Excel.getExcelAlpha(layout.firstValueColumn);
-        const lastValueAlpha = Excel.getExcelAlpha(layout.lastValueColumn);
+        // Validations cover the whole row (any number of entries), unless the template defines the last column
+        const lastValueAlpha = layout.hasFixedLastColumn
+            ? Excel.getExcelAlpha(layout.lastValueColumn)
+            : lastExcelColumnName;
         const firstLabelColumn = Math.min(layout.dataElementColumn, layout.categoryOptionComboColumn);
         const lastLabelColumn = Math.max(layout.dataElementColumn, layout.categoryOptionComboColumn);
         const entryColumnFill = (column: number) =>
