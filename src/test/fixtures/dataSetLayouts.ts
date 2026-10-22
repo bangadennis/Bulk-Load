@@ -1,5 +1,4 @@
 import _ from "lodash";
-import { Moment } from "moment";
 import { ExcelPopulateRepository } from "../../data/ExcelPopulateRepository";
 import { DataForm } from "../../domain/entities/DataForm";
 import { DataPackage } from "../../domain/entities/DataPackage";
@@ -57,11 +56,6 @@ export type DataSetParamsOptions = {
     sections?: Array<{ id: string; sortOrder: number; dataElements: Array<{ id: string }> }>;
     theme?: Theme;
     splitDataEntryTabsBySection?: boolean;
-    // Selection used to size the transposed layout (org units x periods)
-    orgUnitsCount?: number;
-    startDate?: Moment;
-    endDate?: Moment;
-    entryColumns?: number;
 };
 
 export function buildDataSetParams(
@@ -99,13 +93,7 @@ export function buildDataSetParams(
         },
         metadata: {},
         elementMetadata,
-        organisationUnits: options.orgUnitsCount
-            ? _.range(0, options.orgUnitsCount).map(index => ({
-                  id: `OUX${index}`,
-                  displayName: `Org unit ${index}`,
-                  translations: [],
-              }))
-            : orgUnits,
+        organisationUnits: orgUnits,
         rawMetadata: {
             dataElements,
             categoryOptionCombos: [defaultCombo, femaleCombo, maleCombo],
@@ -117,9 +105,6 @@ export function buildDataSetParams(
         language: "en",
         template,
         theme: options.theme,
-        startDate: options.startDate,
-        endDate: options.endDate,
-        entryColumns: options.entryColumns,
         settings,
         downloadRelationships: false,
         splitDataEntryTabsBySection: options.splitDataEntryTabsBySection ?? false,

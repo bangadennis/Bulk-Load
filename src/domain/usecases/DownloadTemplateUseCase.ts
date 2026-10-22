@@ -113,7 +113,7 @@ export class DownloadTemplateUseCase implements UseCase {
                 ? getCaptureOrgUnitIdsForDataForm(element.organisationUnits, currentUser.orgUnits)
                 : orgUnits;
 
-        async function getGenerateFile(maxTeiRows?: number, entryColumns?: number) {
+        async function getGenerateFile(maxTeiRows?: number) {
             const result = await getElementMetadata({
                 api,
                 element,
@@ -142,7 +142,6 @@ export class DownloadTemplateUseCase implements UseCase {
                 useCodesForMetadata,
                 orgUnitShortName: useShortNameInOrgUnit,
                 maxTeiRows,
-                entryColumns,
                 includeMetadataCodes: template.includeMetadataCodes ?? false,
             });
 
@@ -190,13 +189,9 @@ export class DownloadTemplateUseCase implements UseCase {
                 ? dataPackage.trackedEntityInstances.length
                 : undefined;
 
-        // One column per data entry in the transposed data set layout
-        const entryColumns =
-            dataPackage?.type === "dataSets" && enablePopulate ? dataPackage.dataEntries.length : undefined;
-
         if (template.type === "custom") {
             if (template.generateMetadata) {
-                const file = await getGenerateFile(maxTeiRows, entryColumns);
+                const file = await getGenerateFile(maxTeiRows);
                 await this.excelRepository.loadTemplate({ type: "file", file: file });
             } else {
                 await this.excelRepository.loadTemplate({
@@ -206,7 +201,7 @@ export class DownloadTemplateUseCase implements UseCase {
                 });
             }
         } else {
-            const file = await getGenerateFile(maxTeiRows, entryColumns);
+            const file = await getGenerateFile(maxTeiRows);
             await this.excelRepository.loadTemplate({ type: "file", file });
         }
 

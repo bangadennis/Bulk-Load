@@ -25,23 +25,14 @@ const teiSheetName = "TEI Instances";
 const maxRow = 1048576;
 
 // Transposed data set layout (data elements as rows): every value column is a data entry
-// (org unit + period + attribute). Positions are read from the template column data source.
-// The number of styled entry columns is dynamic: org units x periods of the selection, or the entries
-// to populate, within these limits (styling is created cell by cell, validations cover the whole row).
-const transposedEntryColumns = { min: 50, max: 500, excelMaxColumn: 16384 };
-const lastExcelColumnName = "XFD";
-// Label columns (data element, category option combo) before the first entry column
-const transposedLayoutFirstColumnReserve = 2;
+// (org unit + period + attribute). Positions are read from the template column data source,
+// these are the defaults when the data source does not define them.
+const transposedLayoutDefaults = { valueColumns: 50 };
 
-// Soft colors (one per section / data element) for data sets (both layouts), when no theme is selected
-const dataSetPalette = ["FFF3C4", "FDDDC3", "F8D2D2", "E6D6F2", "D6E0F5", "D3ECEF", "DCEFD6"];
+// Soft colors (one per section / data element) for the transposed layout, when no theme is selected
+const transposedPalette = ["FFF3C4", "FDDDC3", "F8D2D2", "E6D6F2", "D6E0F5", "D3ECEF", "DCEFD6"];
 const transposedEntryColumnFills = ["FFFFFF", "F5F8FC"];
-const dataSetLabelFill = "E8EDF5";
-const dataSetLabelStyle: StyleOptions = {
-    alignment: { horizontal: "center", vertical: "center", wrapText: true, shrinkToFit: true },
-    fill: { type: "pattern", patternType: "solid", fgColor: dataSetLabelFill },
-    font: { bold: true },
-};
+const transposedLabelFill = "E8EDF5";
 
 // Width (in characters) of the data element column in the transposed layout
 const dataElementColumnWidth = 60;
@@ -79,8 +70,6 @@ export interface SheetBuilderParams {
     useCodesForMetadata: boolean;
     orgUnitShortName: boolean;
     maxTeiRows?: number;
-    // Data sets, transposed layout: number of data entries to populate (one column each)
-    entryColumns?: number;
     includeMetadataCodes?: boolean;
 }
 
@@ -1030,14 +1019,10 @@ export class SheetBuilder {
                 : dataElementsAll;
             const dataElementsExclusion = settings.dataSetDataElementsFilter;
 
-            const dataSetGroups = this.getDataSetGroups();
-
             columnId = dataSource?.dataElements.column ?? columnId;
             _.forEach(dataElements, ({ dataElement, categoryOptionCombos }) => {
                 const { name, description } = this.translate(dataElement);
                 const firstColumnId = columnId;
-                // Same colors as the transposed layout: by section (or by data element without sections)
-                const colorGroupId = dataSetGroups.groupIdFor(dataElement.id, groupId);
 
                 _.forEach(categoryOptionCombos, categoryOptionCombo => {
                     const dataElementsExcluded = _.get(dataElementsExclusion, dataSet.id, []);
@@ -1056,7 +1041,7 @@ export class SheetBuilder {
                         dataSource?.categoryOptionCombos.row ?? itemRow,
                         columnId,
                         `_${categoryOptionCombo.id}`,
-                        colorGroupId,
+                        groupId,
                         this.validations.get(validation),
                         undefined,
                         categoryOptionCombo.code === "default",
@@ -1076,7 +1061,7 @@ export class SheetBuilder {
                 dataEntrySheet
                     .cell(rowDataElement, firstColumnId, rowDataElement, columnId - 1, true)
                     .formula(`_${dataElement.id}`)
-                    .style(this.groupStyle(colorGroupId));
+                    .style(this.groupStyle(groupId));
 
                 if (dataElement.url !== undefined) {
                     dataEntrySheet
@@ -1215,7 +1200,7 @@ export class SheetBuilder {
         const firstValueColumn = Excel.getColumnIndex(columnStart);
         const lastValueColumn = columnEnd
             ? Excel.getColumnIndex(columnEnd)
-            : firstValueColumn + this.getTransposedEntryColumnsCount() - 1;
+            : firstValueColumn + transposedLayoutDefaults.valueColumns - 1;
 
         return {
             orgUnitRow,
@@ -1227,45 +1212,14 @@ export class SheetBuilder {
             categoryOptionComboColumn,
             firstValueColumn,
             lastValueColumn,
-            hasFixedLastColumn: Boolean(columnEnd),
         };
-    }
-
-    // One column per data entry: org units x periods of the selection (up to a limit), at least the
-    // entries to populate, at least a minimum so that there is room to add more entries by hand.
-    private getTransposedEntryColumnsCount(): number {
-        const { element, organisationUnits, startDate, endDate, entryColumns = 0 } = this.builder;
-        const { min, max, excelMaxColumn } = transposedEntryColumns;
-
-        const periodsCount = buildAllPossiblePeriods(element.periodType, startDate, endDate).length;
-        const selectionCount = _.clamp(organisationUnits.length * periodsCount, min, max);
-        const count = Math.max(selectionCount, entryColumns);
-
-        return Math.min(count, excelMaxColumn - transposedLayoutFirstColumnReserve);
     }
 
     // One color per data set section (or per data element if there are no sections). Theme palette first.
-    private getDataSetBandColor(groupId: number): string {
-        const palette = this.getGroupPalette();
-        return (palette[groupId % palette.length] ?? "FFFFFF").replace(/^#/, "");
-    }
-
-    // Data set colors: one group per section when the data set has sections, otherwise one per data element
-    private getDataSetGroups() {
-        const sections = _.sortBy(this.builder.element.sections ?? [], (section: any) => section.sortOrder);
-        const sectionIndexByDataElementId = new Map<string, number>();
-        sections.forEach((section: any, index: number) => {
-            (section.dataElements ?? []).forEach((ref: { id: string }) =>
-                sectionIndexByDataElementId.set(ref.id, index)
-            );
-        });
-        const hasSections = sectionIndexByDataElementId.size > 0;
-
-        return {
-            // dataElementIndex: position of the data element, used when there are no sections
-            groupIdFor: (dataElementId: string, dataElementIndex: number): number =>
-                hasSections ? sectionIndexByDataElementId.get(dataElementId) ?? sections.length : dataElementIndex,
-        };
+    private getTransposedBandColor(groupId: number): string {
+        const palette = this.builder.theme?.palette;
+        const colors = palette && palette.length > 0 ? palette : transposedPalette;
+        return (colors[groupId % colors.length] ?? "FFFFFF").replace(/^#/, "");
     }
 
     // Data set sheet with data elements (and category option combos) as rows, and one column per
@@ -1276,10 +1230,7 @@ export class SheetBuilder {
         const layout = this.getTransposedLayout(dataEntrySheet);
         const lang = { lng: this.builder.language };
         const firstValueAlpha = Excel.getExcelAlpha(layout.firstValueColumn);
-        // Validations cover the whole row (no limit of entries), unless the template defines the last column
-        const lastValueAlpha = layout.hasFixedLastColumn
-            ? Excel.getExcelAlpha(layout.lastValueColumn)
-            : lastExcelColumnName;
+        const lastValueAlpha = Excel.getExcelAlpha(layout.lastValueColumn);
         const firstLabelColumn = Math.min(layout.dataElementColumn, layout.categoryOptionComboColumn);
         const lastLabelColumn = Math.max(layout.dataElementColumn, layout.categoryOptionComboColumn);
         const entryColumnFill = (column: number) =>
@@ -1319,7 +1270,11 @@ export class SheetBuilder {
             const labelCell = dataEntrySheet.cell(row, firstLabelColumn, row, lastLabelColumn, true);
             if (label.startsWith("_")) labelCell.formula(label);
             else labelCell.string(label);
-            labelCell.style(dataSetLabelStyle);
+            labelCell.style({
+                ...baseStyle,
+                fill: { type: "pattern", patternType: "solid", fgColor: transposedLabelFill },
+                font: { bold: true },
+            });
 
             dataEntrySheet.row(row).setHeight(36);
             for (let column = layout.firstValueColumn; column <= layout.lastValueColumn; column++) {
@@ -1347,7 +1302,15 @@ export class SheetBuilder {
             : dataElementsAll;
         const dataElementsExcluded = _.get(settings.dataSetDataElementsFilter, dataSet.id, []);
 
-        const dataSetGroups = this.getDataSetGroups();
+        // Color by data set section when there are sections, otherwise by data element
+        const sections = _.sortBy(dataSet.sections ?? [], section => section.sortOrder);
+        const sectionIndexByDataElementId = new Map<string, number>();
+        sections.forEach((section, index) => {
+            (section.dataElements ?? []).forEach((ref: { id: string }) =>
+                sectionIndexByDataElementId.set(ref.id, index)
+            );
+        });
+        const hasSections = sectionIndexByDataElementId.size > 0;
 
         let row = layout.firstDataRow;
         let dataElementIndex = 0;
@@ -1355,8 +1318,10 @@ export class SheetBuilder {
         _.forEach(dataElements, ({ dataElement, categoryOptionCombos }) => {
             const { name } = this.translate(dataElement);
             const lines = Math.max(1, Math.ceil(name.length / dataElementColumnWidth));
-            const groupId = dataSetGroups.groupIdFor(dataElement.id, dataElementIndex);
-            const bandColor = this.getDataSetBandColor(groupId);
+            const groupId = hasSections
+                ? sectionIndexByDataElementId.get(dataElement.id) ?? sections.length
+                : dataElementIndex;
+            const bandColor = this.getTransposedBandColor(groupId);
             const bandStyle: StyleOptions = {
                 ...baseStyle,
                 fill: { type: "pattern", patternType: "solid", fgColor: bandColor },
@@ -1579,11 +1544,9 @@ export class SheetBuilder {
         sheet.column(columnId).setWidth(20);
         const cell = sheet.cell(rowId, columnId);
 
-        // Label columns (org unit, period...) of data sets have a soft tint, as in the transposed layout
-        const labelStyle = this.builder.element.type === "dataSets" ? dataSetLabelStyle : baseStyle;
-        if (!defaultLabel) cell.style(groupId !== null ? this.groupStyle(groupId) : labelStyle);
+        if (!defaultLabel) cell.style(groupId !== null ? this.groupStyle(groupId) : baseStyle);
         else {
-            cell.style(groupId !== null ? this.groupStyle(groupId) : labelStyle).style(
+            cell.style(groupId !== null ? this.groupStyle(groupId) : baseStyle).style(
                 this.transparentFontStyle(groupId)
             );
         }
@@ -1629,15 +1592,8 @@ export class SheetBuilder {
         }
     }
 
-    // Theme palette; otherwise soft colors for data sets and the default scale for programs
-    private getGroupPalette(): string[] {
-        const themePalette = this.builder.theme?.palette;
-        if (themePalette && themePalette.length > 0) return themePalette;
-        return this.builder.element.type === "dataSets" ? dataSetPalette : defaultColorScale;
-    }
-
     private transparentFontStyle(groupId: number): StyleOptions {
-        const palette = this.getGroupPalette();
+        const { palette = defaultColorScale } = this.builder.theme ?? {};
 
         return {
             font: {
@@ -1647,7 +1603,7 @@ export class SheetBuilder {
     }
 
     private groupStyle(groupId: number): StyleOptions {
-        const palette = this.getGroupPalette();
+        const { palette = defaultColorScale } = this.builder.theme ?? {};
         return {
             ...baseStyle,
             fill: {
