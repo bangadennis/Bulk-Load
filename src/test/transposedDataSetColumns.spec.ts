@@ -9,7 +9,7 @@ import { buildDataSetParams, populateAndReadWorkbook, value } from "./fixtures/d
 import { initializeMockServer } from "./mocks/server";
 
 /*
-    The transposed layout has 100 styled entry columns (starting at C). The dropdowns of the header rows
+    The transposed layout has 100 entry columns (starting at C). The dropdowns of the header rows
     cover the whole row, and values are written and imported in any column, so more entries can be added.
 */
 
@@ -31,13 +31,12 @@ describe("Transposed data set: entry columns", () => {
         settings = await Settings.build(api, compositionRoot);
     });
 
-    // Number of styled entry columns: columns of row 10 (first data row) with a fill
-    function countStyledEntryColumns(workbook: Workbook): number {
+    // Number of entry columns: columns (from C) with a width, set for every entry column
+    function countEntryColumns(workbook: Workbook): number {
         const sheet = workbook.xworkbook.sheet(sheetName);
         let count = 0;
         for (let column = firstEntryColumn; column < firstEntryColumn + 1500; column++) {
-            const fill = sheet.cell(10, column).style("fill");
-            if (!fill) break;
+            if (!sheet.column(column).width()) break;
             count++;
         }
         return count;
@@ -46,7 +45,7 @@ describe("Transposed data set: entry columns", () => {
     it("has 100 entry columns", async () => {
         const workbook = await new SheetBuilder(buildDataSetParams(settings, template)).generate();
 
-        expect(countStyledEntryColumns(workbook)).toEqual(100);
+        expect(countEntryColumns(workbook)).toEqual(100);
     });
 
     it("validates the header rows and the value rows of the whole row (no limit of entries)", async () => {

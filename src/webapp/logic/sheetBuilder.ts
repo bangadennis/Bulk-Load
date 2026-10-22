@@ -31,11 +31,6 @@ const maxRow = 1048576;
 const transposedEntryColumnsCount = 100;
 const lastExcelColumnName = "XFD";
 
-// Soft colors (one per section / data element) for the transposed layout, when no theme is selected
-const transposedPalette = ["FFF3C4", "FDDDC3", "F8D2D2", "E6D6F2", "D6E0F5", "D3ECEF", "DCEFD6"];
-const transposedEntryColumnFills = ["FFFFFF", "F5F8FC"];
-const transposedLabelFill = "E8EDF5";
-
 // Width (in characters) of the data element column in the transposed layout
 const dataElementColumnWidth = 60;
 
@@ -1218,13 +1213,6 @@ export class SheetBuilder {
         };
     }
 
-    // One color per data set section (or per data element if there are no sections). Theme palette first.
-    private getTransposedBandColor(groupId: number): string {
-        const palette = this.builder.theme?.palette;
-        const colors = palette && palette.length > 0 ? palette : transposedPalette;
-        return (colors[groupId % colors.length] ?? "FFFFFF").replace(/^#/, "");
-    }
-
     // Data set sheet with data elements (and category option combos) as rows, and one column per
     // data entry (org unit, period, attribute option combo and completed in the header rows).
     private fillTransposedDataEntrySheet(dataEntrySheet: Sheet, options: { includedDataElementIds?: Set<string> }) {
@@ -1239,12 +1227,6 @@ export class SheetBuilder {
             : lastExcelColumnName;
         const firstLabelColumn = Math.min(layout.dataElementColumn, layout.categoryOptionComboColumn);
         const lastLabelColumn = Math.max(layout.dataElementColumn, layout.categoryOptionComboColumn);
-        const entryColumnFill = (column: number) =>
-            transposedEntryColumnFills[(column - layout.firstValueColumn) % transposedEntryColumnFills.length];
-        const entryStyle = (column: number): StyleOptions => ({
-            ...baseStyle,
-            fill: { type: "pattern", patternType: "solid", fgColor: entryColumnFill(column) },
-        });
 
         // Hide theme rows by default
         for (let row = 1; row <= this.rowOffset; row++) dataEntrySheet.row(row).hide();
@@ -1252,7 +1234,7 @@ export class SheetBuilder {
         // Title with the data set (used to identify the data form, generated templates only)
         if (template.type === "generated") {
             const dataSetTitleRow = this.rowOffset + 1;
-            dataEntrySheet.row(dataSetTitleRow).setHeight(40);
+            dataEntrySheet.row(dataSetTitleRow).setHeight(30);
             dataEntrySheet
                 .cell(dataSetTitleRow, firstLabelColumn, dataSetTitleRow, lastLabelColumn, true)
                 .formula(`_${dataSet.id}`)
@@ -1276,26 +1258,15 @@ export class SheetBuilder {
             const labelCell = dataEntrySheet.cell(row, firstLabelColumn, row, lastLabelColumn, true);
             if (label.startsWith("_")) labelCell.formula(label);
             else labelCell.string(label);
-            labelCell.style({
-                ...baseStyle,
-                fill: { type: "pattern", patternType: "solid", fgColor: transposedLabelFill },
-                font: { bold: true },
-            });
+            labelCell.style(baseStyle);
 
-            dataEntrySheet.row(row).setHeight(36);
-            for (let column = layout.firstValueColumn; column <= layout.lastValueColumn; column++) {
-                dataEntrySheet.cell(row, column).style(entryStyle(column));
-            }
             this.addListValidation(dataEntrySheet, `${firstValueAlpha}${row}:${lastValueAlpha}${row}`, validation);
         });
-
-        // Separator row between the headers and the data (no titles, as in the row layout)
-        dataEntrySheet.row(layout.firstDataRow - 1).setHeight(8);
 
         dataEntrySheet.column(layout.dataElementColumn).setWidth(dataElementColumnWidth);
         dataEntrySheet.column(layout.categoryOptionComboColumn).setWidth(32);
         for (let column = layout.firstValueColumn; column <= layout.lastValueColumn; column++) {
-            dataEntrySheet.column(column).setWidth(22);
+            dataEntrySheet.column(column).setWidth(20);
         }
 
         // Freeze the headers and the data element / category option combo columns
@@ -1308,7 +1279,7 @@ export class SheetBuilder {
             : dataElementsAll;
         const dataElementsExcluded = _.get(settings.dataSetDataElementsFilter, dataSet.id, []);
 
-        // Color by data set section when there are sections, otherwise by data element
+        // Colors: one per data set section when there are sections, otherwise one per data element
         const sections = _.sortBy(dataSet.sections ?? [], section => section.sortOrder);
         const sectionIndexByDataElementId = new Map<string, number>();
         sections.forEach((section, index) => {
@@ -1324,14 +1295,10 @@ export class SheetBuilder {
         _.forEach(dataElements, ({ dataElement, categoryOptionCombos }) => {
             const { name } = this.translate(dataElement);
             const lines = Math.max(1, Math.ceil(name.length / dataElementColumnWidth));
+            // Theme palette or default colors
             const groupId = hasSections
                 ? sectionIndexByDataElementId.get(dataElement.id) ?? sections.length
                 : dataElementIndex;
-            const bandColor = this.getTransposedBandColor(groupId);
-            const bandStyle: StyleOptions = {
-                ...baseStyle,
-                fill: { type: "pattern", patternType: "solid", fgColor: bandColor },
-            };
             const firstRow = row;
 
             _.forEach(categoryOptionCombos, categoryOptionCombo => {
@@ -1347,16 +1314,14 @@ export class SheetBuilder {
                     .cell(row, layout.dataElementColumn)
                     .formula(`_${dataElement.id}`)
                     .style({
-                        ...bandStyle,
+                        ...this.groupStyle(groupId),
                         alignment: { ...baseStyle.alignment, horizontal: "left", shrinkToFit: false },
                     });
 
                 // As in the row layout, the default category option combo name is not shown
                 const comboCell = dataEntrySheet.cell(row, layout.categoryOptionComboColumn);
-                comboCell.formula(`_${categoryOptionCombo.id}`).style(bandStyle);
-                if (categoryOptionCombo.code === "default") {
-                    comboCell.style({ font: { color: bandColor } });
-                }
+                comboCell.formula(`_${categoryOptionCombo.id}`).style(this.groupStyle(groupId));
+                if (categoryOptionCombo.code === "default") comboCell.style(this.transparentFontStyle(groupId));
 
                 if (dataElement.url !== undefined) {
                     dataEntrySheet
@@ -1377,14 +1342,6 @@ export class SheetBuilder {
 
             if (row > firstRow) dataElementIndex++;
         });
-
-        // Alternate shading of the entry columns, so each data entry reads as one column
-        const lastDataRow = row - 1;
-        if (lastDataRow >= layout.firstDataRow) {
-            for (let column = layout.firstValueColumn; column <= layout.lastValueColumn; column++) {
-                dataEntrySheet.cell(layout.firstDataRow, column, lastDataRow, column).style(entryStyle(column));
-            }
-        }
     }
 
     private addListValidation(sheet: Sheet, sqref: string, validationKey: string) {
