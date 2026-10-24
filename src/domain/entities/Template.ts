@@ -283,6 +283,7 @@ export interface ColumnDataSource extends BaseDataSource {
     categoryOption?: ColumnRef;
     attribute?: RowRef | CellRef;
     eventId?: RowRef | CellRef;
+    completed?: RowRef | CellRef;
     multiTextDataElementDelimiter?: string;
     dataElementProcessingRules?: DataProcessingRule[];
 }
@@ -317,7 +318,7 @@ export function getDataFormRef(template: BaseTemplate): DataFormRef {
     };
 }
 
-type ReferenceType = ColumnRef | CellRef | RowRef | Range | ValueRef | undefined;
+type ReferenceType = ColumnRef | CellRef | RowRef | RangeRef | Range | ValueRef | undefined;
 
 /* Transform a row data source with a fixed sheet name (ex: "Data Entry") to multiple data sources
    using the existing sheets as reference. Note that this only works when all the references
@@ -328,7 +329,7 @@ type ReferenceType = ColumnRef | CellRef | RowRef | Range | ValueRef | undefined
    - sheets- Input sheets with names "Data Entry - Basic" and "Data Entry - Extra".
    - Outputs: two data sources, one with sheet "Data Entry - Basic", the other "Data Entry - Extra".
 */
-export function setDataEntrySheet(dataSource: RowDataSource, sheets: SheetE[]): RowDataSource[] {
+export function setDataEntrySheet<DS extends RowDataSource | ColumnDataSource>(dataSource: DS, sheets: SheetE[]): DS[] {
     const get = <T extends ReferenceType>(ref: T | undefined) =>
         ref && "sheet" in ref ? ref.sheet.toString() : undefined;
 
@@ -342,7 +343,7 @@ export function setDataEntrySheet(dataSource: RowDataSource, sheets: SheetE[]): 
         get(dataSource.completed),
         get(dataSource.coordinates?.latitude),
         get(dataSource.coordinates?.longitude),
-        get(dataSource.geometry),
+        get(dataSource.type === "row" ? dataSource.geometry : undefined),
     ]);
 
     const sheetsFromDataSource = _.uniq(sheetsFromDataSourceAll);
@@ -364,12 +365,12 @@ export function setDataEntrySheet(dataSource: RowDataSource, sheets: SheetE[]): 
         return [dataSource];
     }
 
-    return sheetNamesFromMapping.map((sheetName): RowDataSource => {
+    return sheetNamesFromMapping.map((sheetName): DS => {
         const set = <Ref extends ReferenceType>(ref: Ref): Ref =>
             ref && "sheet" in ref ? { ...ref, sheet: sheetName } : ref;
 
-        return {
-            type: "row",
+        const mapped = {
+            type: dataSource.type,
             range: set(dataSource.range),
             orgUnit: set(dataSource.orgUnit),
             period: set(dataSource.period),
@@ -384,8 +385,10 @@ export function setDataEntrySheet(dataSource: RowDataSource, sheets: SheetE[]): 
                       longitude: set(dataSource.coordinates.longitude),
                   }
                 : undefined,
-            geometry: dataSource.geometry,
+            geometry: dataSource.type === "row" ? dataSource.geometry : undefined,
         };
+
+        return mapped as unknown as DS;
     });
 }
 

@@ -2,6 +2,7 @@ import _ from "lodash";
 
 import {
     CellRef,
+    ColumnDataSource,
     ColumnRef,
     CustomTemplate,
     DataSource,
@@ -26,10 +27,14 @@ import i18n from "../../../../utils/i18n";
 import { Id } from "../../../../domain/entities/ReferenceObject";
 import { TemplateFilter } from "../../../../domain/entities/TemplateFilter";
 
+// Data sets: data elements as columns (one data entry per row) or as rows (one data entry per column)
+export type DataSetLayout = "dataElementsAsColumns" | "dataElementsAsRows";
+
 export interface TemplateView extends BasicView, AdvancedView {
     mode: "basic" | "advanced";
     generateMetadata: boolean;
     isDefault: boolean;
+    dataSetLayout: DataSetLayout;
 }
 
 type ValidView = { [K in keyof TemplateView]: NonNullable<TemplateView[K]> };
@@ -37,6 +42,9 @@ type ValidView = { [K in keyof TemplateView]: NonNullable<TemplateView[K]> };
 const baseFields: Array<keyof BaseView> = ["code", "name", "dataFormId", "spreadsheet"];
 
 const advancedFields: Array<keyof AdvancedView> = ["dataSources", "styleSources"];
+
+// The completed row is optional in data sets with data elements as rows
+const optionalFields: TemplateViewKey[] = ["completedSheet", "completedRow"];
 
 interface BaseView {
     action: "create" | "edit";
@@ -77,6 +85,16 @@ export interface BasicView extends BaseView {
     dataElementRow: string;
     categoryOptionSheet: string;
     categoryOptionRow: string;
+
+    // Data Source (dataSets with data elements as rows): header rows and data element / combo columns
+    orgUnitRow: string;
+    periodRow: string;
+    attributeRow: string;
+    completedSheet: string;
+    completedRow: string;
+    dataElementColumn: string;
+    categoryOptionColumn: string;
+
     coordinatesLatitudeSheet: string;
     coordinatesLatitudeColumn: string;
     coordinatesLongitudeSheet: string;
@@ -155,6 +173,7 @@ const viewDefs = {
     action: definition("create"),
     isDefault: definition(undefined),
     mode: definition("basic"),
+    dataSetLayout: definition("dataElementsAsColumns"),
     generateMetadata: definition(false),
     code: definition(""),
     name: definition(""),
@@ -176,6 +195,13 @@ const viewDefs = {
     dataElementRow: definition("", ["row"]),
     categoryOptionSheet: definition(defaultSheet),
     categoryOptionRow: definition("", ["row"]),
+    orgUnitRow: definition("", ["row"]),
+    periodRow: definition("", ["row"]),
+    attributeRow: definition("", ["row"]),
+    completedSheet: definition(defaultSheet),
+    completedRow: definition("", ["row"]),
+    dataElementColumn: definition("", ["column"]),
+    categoryOptionColumn: definition("", ["column"]),
     coordinatesLatitudeSheet: definition(defaultSheet),
     coordinatesLatitudeColumn: definition("", ["column"]),
     coordinatesLongitudeSheet: definition(defaultSheet),
@@ -249,6 +275,14 @@ const fieldsByKey = {
     coordinatesLongitude: ["coordinatesLongitudeSheet", "coordinatesLongitudeColumn"],
     dataElement: ["dataElementSheet", "dataElementRow"],
     categoryOption: ["categoryOptionSheet", "categoryOptionRow"],
+
+    // dataSets with data elements as rows
+    orgUnitByRow: ["orgUnitSheet", "orgUnitRow"],
+    periodByRow: ["periodSheet", "periodRow"],
+    attributeByRow: ["attributeSheet", "attributeRow"],
+    completedByRow: ["completedSheet", "completedRow"],
+    dataElementByColumn: ["dataElementSheet", "dataElementColumn"],
+    categoryOptionByColumn: ["categoryOptionSheet", "categoryOptionColumn"],
     range: ["rangeSheet", "rangeColumnStart", "rangeRowStart"],
 
     // trackerPrograms
@@ -297,8 +331,12 @@ export class TemplateViewActions {
         return { ...viewEmpty, ...this.get(generatedTemplate), action: "create" };
     }
 
-    private getGeneratedTemplate(dataFormType: DataFormType): GeneratedTemplate {
-        const templateId = getGeneratedTemplateId(dataFormType);
+    private getGeneratedTemplate(
+        dataFormType: DataFormType,
+        dataSetLayout: DataSetLayout = "dataElementsAsColumns"
+    ): GeneratedTemplate {
+        const transposed = dataSetLayout === "dataElementsAsRows";
+        const templateId = getGeneratedTemplateId(dataFormType, { transposed });
         const generatedTemplate = this.generatedTemplates.find(t => t.id === templateId);
         if (!generatedTemplate) throw new Error("Cannot find generated template");
         return generatedTemplate;
@@ -337,11 +375,26 @@ export class TemplateViewActions {
         return { ...viewEmpty, ...base, ...this.get(template) };
     }
 
-    getFieldsForDataFormType(dataFormType: Maybe<DataFormType>): Array<readonly TemplateViewKey[]> {
+    getFieldsForDataFormType(
+        dataFormType: Maybe<DataFormType>,
+        dataSetLayout: DataSetLayout = "dataElementsAsColumns"
+    ): Array<readonly TemplateViewKey[]> {
         const fields = fieldsByKey;
 
         switch (dataFormType) {
             case "dataSets":
+                if (dataSetLayout === "dataElementsAsRows") {
+                    return [
+                        fields.orgUnitByRow,
+                        fields.periodByRow,
+                        fields.attributeByRow,
+                        fields.completedByRow,
+                        fields.range,
+                        fields.dataElementByColumn,
+                        fields.categoryOptionByColumn,
+                    ];
+                }
+
                 return [
                     fields.orgUnit,
                     fields.period,
@@ -413,6 +466,24 @@ export class TemplateViewActions {
         const mode = mode1 ?? defaultMode;
         if (mode === "advanced") return advancedView;
 
+        const columnDataSource = findDataSourceByType(dataSources?.slice(0, 1), "column");
+        if (dataFormType === "dataSets" && columnDataSource) {
+            const view: Partial<TemplateView> = {
+                mode: "basic",
+                dataSetLayout: "dataElementsAsRows",
+                ...getRowAttrs(columnDataSource.orgUnit, "orgUnit"),
+                ...getRowAttrs(columnDataSource.period, "period"),
+                ...getRowAttrs(columnDataSource.attribute, "attribute"),
+                ...getRowAttrs(columnDataSource.completed, "completed"),
+                ...getRangeAttrs(columnDataSource.range, "range"),
+                ...getColumnAttrs(columnDataSource.dataElement, "dataElement"),
+                ...getColumnAttrs(columnDataSource.categoryOption, "categoryOption"),
+                ...stylesAttrs,
+            };
+
+            return view;
+        }
+
         switch (dataFormType) {
             case "dataSets":
             case "programs": {
@@ -422,6 +493,7 @@ export class TemplateViewActions {
 
                 const view: Partial<TemplateView> = {
                     mode: "basic",
+                    ...(dataFormType === "dataSets" ? { dataSetLayout: "dataElementsAsColumns" as const } : {}),
                     ...getColumnAttrs(dataSource.eventId, "eventId"),
                     ...getColumnAttrs(dataSource.orgUnit, "orgUnit"),
                     ...getColumnAttrs(dataSource.attribute, "attribute"),
@@ -518,6 +590,25 @@ export class TemplateViewActions {
             case "basic": {
                 switch (view.dataFormType) {
                     case "dataSets": {
+                        if (view.dataSetLayout === "dataElementsAsRows") {
+                            const completed = view.completedRow
+                                ? { completed: getDataSourceRowAttrs(view, "completed") }
+                                : {};
+
+                            const dataSourceColumns: ColumnDataSource = {
+                                type: "column",
+                                orgUnit: getDataSourceRowAttrs(view, "orgUnit"),
+                                period: getDataSourceRowAttrs(view, "period"),
+                                attribute: getDataSourceRowAttrs(view, "attribute"),
+                                ...completed,
+                                range: getDataSourceRangeAttrs(view, "range"),
+                                dataElement: getDataSourceColumnAttrs(view, "dataElement"),
+                                categoryOption: getDataSourceColumnAttrs(view, "categoryOption"),
+                            };
+
+                            return { ...base, dataSources: [dataSourceColumns], styleSources };
+                        }
+
                         const dataSource: RowDataSource = {
                             type: "row",
                             orgUnit: getDataSourceColumnAttrs(view, "orgUnit"),
@@ -608,6 +699,14 @@ export class TemplateViewActions {
         value: TemplateView[Field]
     ): TemplateView {
         const dataFormTypeChanged = field === "dataFormType" && value && view.dataFormType !== value;
+        const dataSetLayoutChanged = field === "dataSetLayout" && value && view.dataSetLayout !== value;
+
+        if (dataSetLayoutChanged && view.dataFormType) {
+            // Start from the data sources of the generated template with the selected layout
+            const generatedTemplate = this.getGeneratedTemplate(view.dataFormType, value as DataSetLayout);
+            const { dataSources } = this.get(generatedTemplate);
+            return { ...view, dataSetLayout: value as DataSetLayout, dataSources: dataSources ?? view.dataSources };
+        }
 
         if (dataFormTypeChanged) {
             const newDataFormType = value as DataFormType;
@@ -630,7 +729,10 @@ export class TemplateViewActions {
 
         switch (view.mode) {
             case "basic": {
-                const fieldsForType = _.flatten(this.getFieldsForDataFormType(view.dataFormType));
+                // Optional fields (empty is valid) are only validated when filled
+                const fieldsForType = _.flatten(
+                    this.getFieldsForDataFormType(view.dataFormType, view.dataSetLayout)
+                ).filter(field => !(optionalFields.includes(field) && !view[field]));
                 const errorsByDefinition = getErrorsByDefinition(fieldsForType, view, this.translations);
                 if (!_.isEmpty(errorsByDefinition)) return { isValid: false, errors: errorsByDefinition };
 
@@ -677,6 +779,14 @@ export class TemplateViewActions {
             dataElementRow: i18n.t("Data Element - Row"),
             categoryOptionSheet: i18n.t("Category Option - Sheet"),
             categoryOptionRow: i18n.t("Category Option - Row"),
+            dataSetLayout: i18n.t("Layout"),
+            orgUnitRow: i18n.t("Organisation Unit - Row"),
+            periodRow: i18n.t("Period - Row"),
+            attributeRow: i18n.t("Attribute - Row"),
+            completedSheet: i18n.t("Completed - Sheet"),
+            completedRow: i18n.t("Completed - Row (optional)"),
+            dataElementColumn: i18n.t("Data Element - Column"),
+            categoryOptionColumn: i18n.t("Category Option - Column"),
             coordinatesLatitudeSheet: i18n.t("Coordinates Latitude - Sheet"),
             coordinatesLatitudeColumn: i18n.t("Coordinates Latitude - Column"),
             coordinatesLongitudeSheet: i18n.t("Coordinates Longitude - Sheet"),
@@ -758,7 +868,9 @@ type DataSourceColumnField =
     | "teiEventTeiId"
     | "teiEventEventId"
     | "teiEventDate"
-    | "teiEventCategoryOptionCombo";
+    | "teiEventCategoryOptionCombo"
+    | "dataElement"
+    | "categoryOption";
 
 function getColumnAttrs<Field extends DataSourceColumnField>(columnRef: Maybe<SheetRef | ValueRef>, field: Field) {
     if (columnRef?.type !== "column") return;
@@ -770,12 +882,16 @@ function getColumnAttrs<Field extends DataSourceColumnField>(columnRef: Maybe<Sh
     return attrs as Record<typeof sheetField | typeof columnField, string>;
 }
 
-type DataSourceRowField = "dataElement" | "categoryOption" | "teiAttributeId";
+type DataSourceRowField =
+    | "dataElement"
+    | "categoryOption"
+    | "teiAttributeId"
+    | "orgUnit"
+    | "period"
+    | "attribute"
+    | "completed";
 
-function getRowAttrs<Field extends DataSourceRowField>(
-    rowRef: ColumnRef | RowRef | ValueRef | undefined,
-    field: Field
-) {
+function getRowAttrs<Field extends DataSourceRowField>(rowRef: Maybe<SheetRef | ValueRef>, field: Field) {
     if (rowRef?.type !== "row") return;
 
     const sheetField = (field + "Sheet") as `${typeof field}Sheet`;

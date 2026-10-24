@@ -143,6 +143,14 @@ const EditDialog: React.FC<CustomTemplateEditDialogProps2> = React.memo(props =>
         [setTemplate]
     );
 
+    const toggleDataSetLayout = React.useCallback<NonNullable<SwitchProps["onChange"]>>(
+        ev => {
+            const layout = ev.target.checked ? "dataElementsAsRows" : "dataElementsAsColumns";
+            setTemplate(update("dataSetLayout", layout));
+        },
+        [setTemplate]
+    );
+
     const generateMetadata = template.generateMetadata;
     const toggleGenerateMetadata = React.useCallback<NonNullable<SwitchProps["onChange"]>>(
         ev => {
@@ -222,7 +230,7 @@ const EditDialog: React.FC<CustomTemplateEditDialogProps2> = React.memo(props =>
                 <div>
                     <FormControlLabel
                         control={<Switch checked={isAdvancedMode} onChange={toggleMode} />}
-                        label={isAdvancedMode ? i18n.t("Advanced") : i18n.t("Basic (only row schema)")}
+                        label={isAdvancedMode ? i18n.t("Advanced") : i18n.t("Basic")}
                     />
                 </div>
 
@@ -236,11 +244,25 @@ const EditDialog: React.FC<CustomTemplateEditDialogProps2> = React.memo(props =>
                         </div>
                     )}
 
+                    {!isAdvancedMode && template.dataFormType === "dataSets" && (
+                        <div>
+                            <FormControlLabel
+                                control={
+                                    <Switch
+                                        checked={template.dataSetLayout === "dataElementsAsRows"}
+                                        onChange={toggleDataSetLayout}
+                                    />
+                                }
+                                label={i18n.t("Data elements as rows (data entries as columns)")}
+                            />
+                        </div>
+                    )}
+
                     {isAdvancedMode ? (
                         <FileField data={data} field="dataSources" mimeType={["application/json"]} />
                     ) : (
                         actions
-                            .getFieldsForDataFormType(template.dataFormType)
+                            .getFieldsForDataFormType(template.dataFormType, template.dataSetLayout)
                             .map(fields => <FieldsRow key={fields.join()} fields={fields} data={data} />)
                     )}
                 </Group>

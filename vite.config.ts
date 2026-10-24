@@ -39,6 +39,8 @@ export default ({ mode }): UserConfig => {
             setupFiles: "./src/tests/setup.js",
             exclude: ["node_modules", "src/tests/playwright"],
             globals: true,
+            // Tests that generate Excel workbooks take a few seconds, more when files run in parallel
+            testTimeout: 30000,
         },
         resolve: {
             alias: {

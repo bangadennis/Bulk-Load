@@ -15,6 +15,7 @@ import { Maybe } from "../../types/utils";
 import { MetadataService } from "./MetadataService";
 
 export const dataSetId = "DATASET_GENERATED_v3";
+export const dataSetTransposedId = "DATASET_GENERATED_v4";
 export const programId = "PROGRAM_GENERATED_v5";
 export const trackerProgramId = "TRACKER_PROGRAM_GENERATED_v4";
 
@@ -22,6 +23,16 @@ const Excel = Workbook;
 const teiSheetName = "TEI Instances";
 
 const maxRow = 1048576;
+
+// Transposed data set layout (data elements as rows): every value column is a data entry
+// (org unit + period + attribute). Positions are read from the template column data source.
+// Fixed number of styled entry columns (styling is created cell by cell, so more columns make a larger file).
+// The dropdowns cover the whole row, so more entries can be added by hand.
+const transposedEntryColumnsCount = 100;
+const lastExcelColumnName = "XFD";
+
+// Width (in characters) of the data element column in the transposed layout
+const dataElementColumnWidth = 60;
 
 // Excel shows all empty rows, limit the maximum number of TEIs
 const defaultMaxTeiRows = 1024;
@@ -880,11 +891,19 @@ export class SheetBuilder {
     private getVersion() {
         const { element, template } = this.builder;
         const customVersion = template.type === "custom" ? template.id : undefined;
+        const transposedVersion = this.isTransposedDataSet() ? template.id : undefined;
         const defaultVersion = getGeneratedTemplateId(element.type);
-        return customVersion ?? getObjectVersion(element) ?? defaultVersion;
+        return customVersion ?? transposedVersion ?? getObjectVersion(element) ?? defaultVersion;
+    }
+
+    private isTransposedDataSet(): boolean {
+        const { element, template } = this.builder;
+        return element.type === "dataSets" && template.type === "generated" && template.id === dataSetTransposedId;
     }
 
     private fillDataEntrySheet(dataEntrySheet: Sheet, options: { includedDataElementIds?: Set<string> }) {
+        if (this.isTransposedDataSet()) return this.fillTransposedDataEntrySheet(dataEntrySheet, options);
+
         const { includedDataElementIds } = options;
         const { element, elementMetadata: metadata, settings } = this.builder;
         const { rowOffset } = this;
@@ -1152,6 +1171,192 @@ export class SheetBuilder {
                 });
             });
         }
+    }
+
+    // Positions of the transposed layout, from the template column data source (1-based indexes)
+    private getTransposedLayout(sheet: Sheet) {
+        const { template } = this.builder;
+        const dataSource = getDataSources(template, sheet.name).find(ds => ds.type === "column");
+        if (!dataSource || dataSource.type !== "column")
+            throw new Error("Transposed layout needs a column data source");
+
+        const rowOf = (ref: { type: string; ref: string | number } | undefined) =>
+            ref?.type === "row" ? Number(ref.ref) : undefined;
+        const columnOf = (ref: { type: string; ref: string | number } | undefined) =>
+            ref?.type === "column" ? Excel.getColumnIndex(String(ref.ref)) : undefined;
+
+        const orgUnitRow = rowOf(dataSource.orgUnit);
+        const periodRow = rowOf(dataSource.period);
+        const dataElementColumn = columnOf(dataSource.dataElement);
+        const categoryOptionComboColumn = columnOf(dataSource.categoryOption);
+        if (!(orgUnitRow && periodRow && dataElementColumn && categoryOptionComboColumn)) {
+            throw new Error("Transposed layout needs org unit and period rows, data element and combo columns");
+        }
+
+        const { rowStart, columnStart, columnEnd } = dataSource.range;
+        const firstValueColumn = Excel.getColumnIndex(columnStart);
+        const lastValueColumn = columnEnd
+            ? Excel.getColumnIndex(columnEnd)
+            : firstValueColumn + transposedEntryColumnsCount - 1;
+
+        return {
+            orgUnitRow,
+            periodRow,
+            attributeRow: rowOf(dataSource.attribute),
+            completedRow: rowOf(dataSource.completed),
+            firstDataRow: rowStart,
+            dataElementColumn,
+            categoryOptionComboColumn,
+            firstValueColumn,
+            lastValueColumn,
+            hasFixedLastColumn: Boolean(columnEnd),
+        };
+    }
+
+    // Data set sheet with data elements (and category option combos) as rows, and one column per
+    // data entry (org unit, period, attribute option combo and completed in the header rows).
+    private fillTransposedDataEntrySheet(dataEntrySheet: Sheet, options: { includedDataElementIds?: Set<string> }) {
+        const { includedDataElementIds } = options;
+        const { element: dataSet, elementMetadata: metadata, settings, template } = this.builder;
+        const layout = this.getTransposedLayout(dataEntrySheet);
+        const lang = { lng: this.builder.language };
+        const firstValueAlpha = Excel.getExcelAlpha(layout.firstValueColumn);
+        // Validations cover the whole row (any number of entries), unless the template defines the last column
+        const lastValueAlpha = layout.hasFixedLastColumn
+            ? Excel.getExcelAlpha(layout.lastValueColumn)
+            : lastExcelColumnName;
+        const firstLabelColumn = Math.min(layout.dataElementColumn, layout.categoryOptionComboColumn);
+        const lastLabelColumn = Math.max(layout.dataElementColumn, layout.categoryOptionComboColumn);
+
+        // Hide theme rows by default
+        for (let row = 1; row <= this.rowOffset; row++) dataEntrySheet.row(row).hide();
+
+        // Title with the data set (used to identify the data form, generated templates only)
+        if (template.type === "generated") {
+            const dataSetTitleRow = this.rowOffset + 1;
+            dataEntrySheet.row(dataSetTitleRow).setHeight(30);
+            dataEntrySheet
+                .cell(dataSetTitleRow, firstLabelColumn, dataSetTitleRow, lastLabelColumn, true)
+                .formula(`_${dataSet.id}`)
+                .style({ ...baseStyle, font: { size: 16, bold: true } });
+        }
+
+        const { code: attributeCode } = metadata.get(dataSet.categoryCombo?.id);
+        const optionsTitle = attributeCode !== "default" ? `_${dataSet.categoryCombo.id}` : i18n.t("Options", lang);
+
+        // Header rows: label in the first two columns, one editable cell per value column
+        const headerRows = _.compact([
+            { row: layout.orgUnitRow, label: i18n.t("Org Unit *", lang), validation: "organisationUnits" },
+            { row: layout.periodRow, label: i18n.t("Period", lang), validation: "periods" },
+            layout.attributeRow ? { row: layout.attributeRow, label: optionsTitle, validation: "options" } : undefined,
+            layout.completedRow
+                ? { row: layout.completedRow, label: i18n.t("Completed", lang), validation: "BOOLEAN" }
+                : undefined,
+        ]);
+
+        headerRows.forEach(({ row, label, validation }) => {
+            const labelCell = dataEntrySheet.cell(row, firstLabelColumn, row, lastLabelColumn, true);
+            if (label.startsWith("_")) labelCell.formula(label);
+            else labelCell.string(label);
+            labelCell.style(baseStyle);
+
+            this.addListValidation(dataEntrySheet, `${firstValueAlpha}${row}:${lastValueAlpha}${row}`, validation);
+        });
+
+        dataEntrySheet.column(layout.dataElementColumn).setWidth(dataElementColumnWidth);
+        dataEntrySheet.column(layout.categoryOptionComboColumn).setWidth(32);
+        for (let column = layout.firstValueColumn; column <= layout.lastValueColumn; column++) {
+            dataEntrySheet.column(column).setWidth(20);
+        }
+
+        // Freeze the headers and the data element / category option combo columns
+        dataEntrySheet.xsheet.freezePanes(layout.firstValueColumn - 1, layout.firstDataRow - 1);
+
+        // One row per data element and category option combo
+        const dataElementsAll = getDataSetDataElements(dataSet, metadata);
+        const dataElements = includedDataElementIds
+            ? dataElementsAll.filter(obj => includedDataElementIds.has(obj.dataElement.id))
+            : dataElementsAll;
+        const dataElementsExcluded = _.get(settings.dataSetDataElementsFilter, dataSet.id, []);
+
+        // Colors: one per data set section when there are sections, otherwise one per data element
+        const sections = _.sortBy(dataSet.sections ?? [], section => section.sortOrder);
+        const sectionIndexByDataElementId = new Map<string, number>();
+        sections.forEach((section, index) => {
+            (section.dataElements ?? []).forEach((ref: { id: string }) =>
+                sectionIndexByDataElementId.set(ref.id, index)
+            );
+        });
+        const hasSections = sectionIndexByDataElementId.size > 0;
+
+        let row = layout.firstDataRow;
+        let dataElementIndex = 0;
+
+        _.forEach(dataElements, ({ dataElement, categoryOptionCombos }) => {
+            const { name } = this.translate(dataElement);
+            const lines = Math.max(1, Math.ceil(name.length / dataElementColumnWidth));
+            // Theme palette or default colors
+            const groupId = hasSections
+                ? sectionIndexByDataElementId.get(dataElement.id) ?? sections.length
+                : dataElementIndex;
+            const firstRow = row;
+
+            _.forEach(categoryOptionCombos, categoryOptionCombo => {
+                const isExcluded = _.some(dataElementsExcluded, excluded =>
+                    _.isEqual(excluded, { id: dataElement.id, categoryOptionComboId: categoryOptionCombo.id })
+                );
+                if (isExcluded) return;
+
+                // Fit long data element names
+                dataEntrySheet.row(row).setHeight(Math.max(22, lines * 16 + 6));
+
+                dataEntrySheet
+                    .cell(row, layout.dataElementColumn)
+                    .formula(`_${dataElement.id}`)
+                    .style({
+                        ...this.groupStyle(groupId),
+                        alignment: { ...baseStyle.alignment, horizontal: "left", shrinkToFit: false },
+                    });
+
+                // As in the row layout, the default category option combo name is not shown
+                const comboCell = dataEntrySheet.cell(row, layout.categoryOptionComboColumn);
+                comboCell.formula(`_${categoryOptionCombo.id}`).style(this.groupStyle(groupId));
+                if (categoryOptionCombo.code === "default") comboCell.style(this.transparentFontStyle(groupId));
+
+                if (dataElement.url !== undefined) {
+                    dataEntrySheet
+                        .cell(row, layout.dataElementColumn)
+                        .link(dataElement.url)
+                        .formula(`=_${dataElement.id}`);
+                }
+
+                const validationKey = dataElement.optionSet ? dataElement.optionSet.id : dataElement.valueType;
+                this.addListValidation(
+                    dataEntrySheet,
+                    `${firstValueAlpha}${row}:${lastValueAlpha}${row}`,
+                    validationKey
+                );
+
+                row++;
+            });
+
+            if (row > firstRow) dataElementIndex++;
+        });
+    }
+
+    private addListValidation(sheet: Sheet, sqref: string, validationKey: string) {
+        const validation = this.validations.get(validationKey);
+        if (validation === undefined) return;
+
+        sheet.addDataValidation({
+            type: "list",
+            allowBlank: true,
+            error: i18n.t("Invalid choice was chosen", { lng: this.builder.language }),
+            errorStyle: "warning",
+            showDropDown: true,
+            sqref,
+            formulas: [validation.toString()],
+        });
     }
 
     getDataSource(options: { sheet: Sheet }) {
@@ -1429,14 +1634,10 @@ function getDataElementsForSectionDataSet(dataSet: any, metadata: any, cocsByCat
     return _(allDataElements)
         .map(dataElement => metadata.get(dataElement.id))
         .compact()
-        .groupBy(dataElement => categoryComboIdByDataElementId[dataElement.id])
-        .toPairs()
-        .flatMap(([categoryComboId, dataElements]) => {
-            return dataElements.map(dataElement => ({
-                dataElement,
-                categoryOptionCombos: cocsByCatComboId[categoryComboId] || [],
-            }));
-        })
+        .map(dataElement => ({
+            dataElement,
+            categoryOptionCombos: cocsByCatComboId[categoryComboIdByDataElementId[dataElement.id]] || [],
+        }))
         .value();
 }
 
@@ -1550,10 +1751,10 @@ function isTrackerProgram(element: any) {
     return element.type === "trackerPrograms";
 }
 
-export function getGeneratedTemplateId(type: DataFormType) {
+export function getGeneratedTemplateId(type: DataFormType, options: { transposed?: boolean } = {}) {
     switch (type) {
         case "dataSets":
-            return dataSetId;
+            return options.transposed ? dataSetTransposedId : dataSetId;
         case "programs":
             return programId;
         case "trackerPrograms":

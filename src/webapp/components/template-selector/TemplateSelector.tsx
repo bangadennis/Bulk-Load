@@ -87,6 +87,7 @@ export const TemplateSelector = ({
             language: "en",
             settings,
             splitDataEntryTabsBySection: false,
+            transposed: false,
             useCodesForMetadata: false,
             showPeriod: false,
             showLanguage: false,
@@ -326,6 +327,10 @@ export const TemplateSelector = ({
 
     const toggleSplitDataEntryTabsBySection = () => {
         setState(state => ({ ...state, splitDataEntryTabsBySection: !state.splitDataEntryTabsBySection }));
+    };
+
+    const toggleTransposed = () => {
+        setState(state => ({ ...state, transposed: !state.transposed }));
     };
 
     const onFilterTEIEnrollmentDateChange = (_event: React.ChangeEvent, filterTEIEnrollmentDate: boolean) => {
@@ -679,6 +684,14 @@ export const TemplateSelector = ({
                             />
                         }
                         label={i18n.t("Split data entry tabs by section")}
+                    />
+                )}
+
+                {isDataSet && state.templateType !== "custom" && (
+                    <FormControlLabel
+                        className={classes.checkbox}
+                        control={<Checkbox checked={Boolean(state.transposed)} onChange={toggleTransposed} />}
+                        label={i18n.t("Data elements as rows (data entries as columns)")}
                     />
                 )}
 
