@@ -13,6 +13,8 @@ import {
 import React, { ChangeEvent, useCallback, useMemo, useState } from "react";
 import {
     CategoryOptionOrgUnitFilter,
+    categoryOptionOrgUnitFilters,
+    isCategoryOptionOrgUnitFilter,
     DuplicateToleranceUnit,
     Model,
     OrgUnitSelectionSetting,
@@ -65,7 +67,8 @@ export default function SettingsFields(props: SettingsFieldsProps & CustomTempla
 
     const setCategoryOptionOrgUnitFilter = useCallback(
         ({ value }: SelectOption) => {
-            onChange(settings.update({ categoryOptionOrgUnitFilter: value as CategoryOptionOrgUnitFilter }));
+            if (!isCategoryOptionOrgUnitFilter(value)) return;
+            onChange(settings.update({ categoryOptionOrgUnitFilter: value }));
         },
         [settings, onChange]
     );
@@ -137,19 +140,14 @@ export default function SettingsFields(props: SettingsFieldsProps & CustomTempla
         []
     );
 
-    const categoryOptionOrgUnitFilterOptions: SelectOption[] = useMemo(
-        () => [
-            {
-                value: "assigned",
-                label: i18n.t("Only for their assigned Organisation Units"),
-            },
-            {
-                value: "assignedAndDescendants",
-                label: i18n.t("For their assigned Organisation Units and all descendants"),
-            },
-        ],
-        []
-    );
+    const categoryOptionOrgUnitFilterOptions: SelectOption[] = useMemo(() => {
+        const labels: Record<CategoryOptionOrgUnitFilter, string> = {
+            assigned: i18n.t("Only for their assigned Organisation Units"),
+            assignedAndDescendants: i18n.t("For their assigned Organisation Units and all descendants"),
+        };
+
+        return categoryOptionOrgUnitFilters.map(value => ({ value, label: labels[value] }));
+    }, []);
 
     const yesNoOptions: SelectOption[] = useMemo(
         () => [
@@ -286,7 +284,9 @@ export default function SettingsFields(props: SettingsFieldsProps & CustomTempla
             </FormGroup>
 
             <h3 className={classes.title}>
-                {i18n.t("Dataset attribute options (category options): organisation unit filter mode")}
+                {i18n.t("Dataset attribute options (category options): organisation unit filter mode", {
+                    nsSeparator: false,
+                })}
             </h3>
 
             <FormGroup className={classes.content} row={true}>

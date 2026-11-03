@@ -16,7 +16,13 @@ export type OrgUnitSelectionSetting = "generation" | "import" | "both";
     - "assignedAndDescendants": a category option assigned to an ancestor of the selected
       org unit is also included.
 */
-export type CategoryOptionOrgUnitFilter = "assigned" | "assignedAndDescendants";
+export const categoryOptionOrgUnitFilters = ["assigned", "assignedAndDescendants"] as const;
+
+export type CategoryOptionOrgUnitFilter = typeof categoryOptionOrgUnitFilters[number];
+
+export function isCategoryOptionOrgUnitFilter(value: string): value is CategoryOptionOrgUnitFilter {
+    return (categoryOptionOrgUnitFilters as readonly string[]).includes(value);
+}
 
 export type DuplicateToleranceUnit = "day" | "week" | "month" | "year";
 export type DuplicateExclusion = Record<Id, Id[]>;

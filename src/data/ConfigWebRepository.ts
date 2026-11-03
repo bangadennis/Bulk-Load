@@ -34,7 +34,7 @@ export class ConfigWebRepository implements ConfigRepository {
             allPermissionsForImport: true,
             allPermissionsForHistory: true,
             orgUnitSelection: "both",
-            categoryOptionOrgUnitFilter: "assignedAndDescendants",
+            categoryOptionOrgUnitFilter: "assigned",
             duplicateEnabled: false,
             duplicateExclusion: {},
             duplicateTolerance: 1,

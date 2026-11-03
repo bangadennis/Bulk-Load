@@ -31,7 +31,6 @@ import { OrgUnit } from "../domain/entities/OrgUnit";
 import { NamedRef, Ref } from "../domain/entities/ReferenceObject";
 import {
     computeOverallSyncStatus,
-    ErrorMessage,
     SynchronizationResult,
     SynchronizationStats,
     SynchronizationStatus,
@@ -64,7 +63,6 @@ import { postEvents } from "./Dhis2Events";
 import { getProgram, getTrackedEntityInstances, updateTrackedEntityInstances } from "./Dhis2TrackedEntityInstances";
 import { Sharing } from "../domain/entities/Sharing";
 import { getMetadataDetailsFromErrors, resolveEventStatus } from "./Dhis2Import";
-import { getApiErrorMessage } from "./ApiError";
 import {
     buildCompletionLookup,
     CompletableDataValue,
@@ -75,13 +73,12 @@ import {
     resolveCompletableRegistrationKeys,
     resolveRegistrations,
     resolveRequestedRegistrationKeys,
+    completeDataSetRegistrations,
+    CompletionResult,
 } from "./Dhis2DataSetCompletion";
 import { Maybe } from "../types/utils";
 
 const bulkOperationChunkSize = 1000;
-
-type CompletionResult = { errors: ErrorMessage[]; rawResponses: object[] };
-type ChunkCompletionResult = { error?: ErrorMessage; rawResponse?: object };
 
 export class InstanceDhisRepository implements InstanceRepository {
     private api: D2Api;
@@ -604,36 +601,8 @@ export class InstanceDhisRepository implements InstanceRepository {
         return resolveRegistrations(dataPackage.dataEntries, keys);
     }
 
-    /* Complete the registrations. Return the errors and the API responses (for the JSON Response) of failed requests. */
-    private async completeDataSetRegistrations(registrations: Registration[]): Promise<CompletionResult> {
-        if (registrations.length === 0) return { errors: [], rawResponses: [] };
-
-        const chunks = _.chunk(registrations, bulkOperationChunkSize);
-
-        const chunkResults = await promiseMap(chunks, async (chunk): Promise<ChunkCompletionResult> => {
-            try {
-                await this.api
-                    .post<{ status: string }>(
-                        "/completeDataSetRegistrations",
-                        {},
-                        { completeDataSetRegistrations: chunk }
-                    )
-                    .getData();
-                return {};
-            } catch (error: unknown) {
-                const message = getApiErrorMessage(error) ?? i18n.t("Failed to register data set(s) as completed");
-                const rawResponse: unknown = _.get(error, "response.data");
-                return {
-                    error: { id: "completeDataSetRegistrations", message, details: undefined },
-                    rawResponse: _.isObject(rawResponse) ? rawResponse : undefined,
-                };
-            }
-        });
-
-        return {
-            errors: _.compact(chunkResults.map(result => result.error)),
-            rawResponses: _.compact(chunkResults.map(result => result.rawResponse)),
-        };
+    private completeDataSetRegistrations(registrations: Registration[]): Promise<CompletionResult> {
+        return completeDataSetRegistrations(this.api, registrations, bulkOperationChunkSize);
     }
 
     private mergeChunkResults(chunks: AggregatedDataValue[][], chunkResults: Array<Maybe<DataValueSetsPostResponse>>) {

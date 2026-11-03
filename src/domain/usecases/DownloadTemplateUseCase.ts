@@ -20,6 +20,7 @@ import {
     TemplateType,
 } from "../entities/Template";
 import { ExcelBuilder } from "../helpers/ExcelBuilder";
+import { OrgUnitRepository } from "../repositories/OrgUnitRepository";
 import { ExcelRepository } from "../repositories/ExcelRepository";
 import { InstanceRepository } from "../repositories/InstanceRepository";
 import { ModulesRepositories } from "../repositories/ModulesRepositories";
@@ -65,7 +66,8 @@ export class DownloadTemplateUseCase implements UseCase {
         private excelRepository: ExcelRepository,
         private modulesRepositories: ModulesRepositories,
         private usersRepository: UsersRepository,
-        private dataElementDisaggregationsMappingRepository: DataElementDisaggregationsMappingRepository
+        private dataElementDisaggregationsMappingRepository: DataElementDisaggregationsMappingRepository,
+        private orgUnitRepository: OrgUnitRepository
     ) {}
 
     public async execute(api: D2Api, options: DownloadTemplateProps): Promise<void> {
@@ -108,9 +110,12 @@ export class DownloadTemplateUseCase implements UseCase {
                 ? getCaptureOrgUnitIdsForDataForm(element.organisationUnits, currentUser.orgUnits)
                 : orgUnits;
 
+        const orgUnitRepository = this.orgUnitRepository;
+
         async function getGenerateFile(maxTeiRows?: number) {
             const result = await getElementMetadata({
                 api,
+                orgUnitRepository,
                 element,
                 downloadRelationships,
                 orgUnitIds,
@@ -325,6 +330,7 @@ export async function getElement(api: D2Api, type: DataFormType, id: string) {
 export async function getElementMetadata({
     element,
     api,
+    orgUnitRepository,
     orgUnitIds,
     startDate,
     endDate,
@@ -337,6 +343,7 @@ export async function getElementMetadata({
 }: {
     element: any;
     api: D2Api;
+    orgUnitRepository: OrgUnitRepository;
     orgUnitIds: string[];
     startDate: Date | undefined;
     endDate: Date | undefined;
@@ -353,6 +360,7 @@ export async function getElementMetadata({
 
     const rawMetadata = await filterRawMetadata({
         api,
+        orgUnitRepository,
         element,
         elementMetadata,
         orgUnitIds,
@@ -421,7 +429,7 @@ interface CategoryOptionCombo {
     categoryOptions: Ref[];
 }
 
-interface Element {
+export interface Element {
     type: "dataSets" | "programs";
     organisationUnits: Ref[];
 }
@@ -440,6 +448,7 @@ interface Element {
 
 async function filterRawMetadata(options: {
     api: D2Api;
+    orgUnitRepository: OrgUnitRepository;
     element: Element;
     elementMetadata: ElementMetadata;
     orgUnitIds: Id[];
@@ -447,11 +456,16 @@ async function filterRawMetadata(options: {
     endDate: Date | undefined;
     categoryOptionOrgUnitFilter: CategoryOptionOrgUnitFilter;
 }): Promise<ElementMetadata & unknown> {
-    const { api, element, elementMetadata, orgUnitIds, categoryOptionOrgUnitFilter } = options;
+    const { api, orgUnitRepository, element, elementMetadata, orgUnitIds, categoryOptionOrgUnitFilter } = options;
 
     if (element.type === "dataSets") {
         const categoryOptions = await getCategoryOptions(api);
-        const selectedOrgUnits = await getSelectedOrgUnits(api, element, orgUnitIds, categoryOptionOrgUnitFilter);
+        const selectedOrgUnits = await getSelectedOrgUnits(
+            orgUnitRepository,
+            element,
+            orgUnitIds,
+            categoryOptionOrgUnitFilter
+        );
         const categoryOptionIdsToInclude = getCategoryOptionIdsToInclude(selectedOrgUnits, categoryOptions, options);
 
         const categoryOptionCombosFiltered = elementMetadata.categoryOptionCombos.filter(coc =>
@@ -466,49 +480,42 @@ async function filterRawMetadata(options: {
     }
 }
 
-interface CategoryOption {
+export interface CategoryOption {
     id: Id;
     startDate?: string;
     endDate?: String;
     organisationUnits: Ref[];
 }
 
-type OrgUnitPathRef = {
+export type OrgUnitPathRef = {
     id: Id;
     path?: string;
 };
 
 async function getSelectedOrgUnits(
-    api: D2Api,
+    orgUnitRepository: OrgUnitRepository,
     element: Element,
     orgUnitIds: Id[],
     categoryOptionOrgUnitFilter: CategoryOptionOrgUnitFilter
 ): Promise<OrgUnitPathRef[]> {
-    const dataSetOrgUnitIds = element.organisationUnits.map(orgUnit => orgUnit.id);
-    const selectedOrgUnitIds = _.isEmpty(orgUnitIds) ? dataSetOrgUnitIds : orgUnitIds;
+    const selectedOrgUnitIds = getSelectedOrgUnitIds(element, orgUnitIds);
 
     if (_.isEmpty(selectedOrgUnitIds)) return [];
 
     // Only the "assignedAndDescendants" filter looks at ancestors, so skip requesting paths otherwise.
     if (categoryOptionOrgUnitFilter === "assigned") return selectedOrgUnitIds.map(id => ({ id }));
 
-    const orgUnitsByChunk = await promiseMap(_.chunk(selectedOrgUnitIds, 250), async orgUnitIdsChunk => {
-        const { objects } = await api.models.organisationUnits
-            .get({
-                paging: false,
-                fields: { id: true, path: true },
-                filter: { id: { in: orgUnitIdsChunk } },
-            })
-            .getData();
-
-        return objects;
-    });
-
-    const selectedOrgUnits = _.flatten(orgUnitsByChunk);
-    return selectedOrgUnits;
+    const orgUnits = await orgUnitRepository.getByIds(selectedOrgUnitIds);
+    return orgUnits.map(({ id, path }) => ({ id, path }));
 }
 
-function getCategoryOptionIdsToInclude(
+/* Selected org units limited to the data set org units (all of them if none selected) */
+export function getSelectedOrgUnitIds(element: Element, orgUnitIds: Id[]): Id[] {
+    const dataSetOrgUnitIds = element.organisationUnits.map(orgUnit => orgUnit.id);
+    return _.isEmpty(orgUnitIds) ? dataSetOrgUnitIds : _.intersection(orgUnitIds, dataSetOrgUnitIds);
+}
+
+export function getCategoryOptionIdsToInclude(
     selectedOrgUnits: OrgUnitPathRef[],
     categoryOptions: CategoryOption[],
     options: { startDate: Date | undefined; endDate: Date | undefined }

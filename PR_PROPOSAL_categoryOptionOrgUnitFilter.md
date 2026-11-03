@@ -58,15 +58,10 @@ not for `District 1` or `Facility 1a`, even though the partner is meant to
 support the whole country. This is a mismatch with DHIS2's own Data Entry
 behavior described in Section 1.
 
-This proposal fixes that mismatch and makes the fix configurable, as one piece
-of work: it changes matching to be ancestry-aware by default, so `Partner A`
-cascades down to every district and facility under `Country` and matches Data
-Entry, while adding an explicit, opt-in strict mode for instances that
-intentionally assign category options directly to every org unit they want
-them to appear at (for example, a partner that only supports specific
-facilities, not a whole country). Neither half ships without the other —
-matching Data Entry by default and making that choice configurable are both
-part of this same proposal, not a follow-up to something already merged.
+This proposal makes the matching configurable. The default stays strict
+(`assigned`), so existing instances are unaffected. Instances that want
+`Partner A` to cascade down to every district and facility under `Country`, as
+in Data Entry, can opt in to `assignedAndDescendants`.
 
 ## 3. Proposal
 
@@ -74,8 +69,8 @@ Add a setting, **categoryOptionOrgUnitFilter**, with two values:
 
 | Value | Behavior | Choose this if |
 |---|---|---|
-| `assignedAndDescendants` (default) | A category option is available at its assigned org unit and everything below it. | You want assign-once-at-the-top behavior, like `Partner A` supporting an entire country, matching DHIS2 Data Entry. Right for most instances — this is a change from the app's current, strict-only behavior. |
-| `assigned` | A category option is available only at the org unit(s) it's directly assigned to. | Your instance assigns category options to every org unit individually — e.g. a partner that only supports a handful of named facilities — and depends on that narrower scope. |
+| `assigned` (default) | A category option is available only at the org unit(s) it's directly assigned to. | Your instance assigns category options to every org unit individually — e.g. a partner that only supports a handful of named facilities — and depends on that narrower scope. This is the app's current behavior, so nothing changes on upgrade. |
+| `assignedAndDescendants` | A category option is available at its assigned org unit and everything below it. | You want assign-once-at-the-top behavior, like `Partner A` supporting an entire country, matching DHIS2 Data Entry. Opt-in. |
 
 **Where it lives:** its own section in Settings, titled with the setting's own
 label, directly below "Organisation Unit Visibility." It's not nested inside that
@@ -88,13 +83,10 @@ filter mode"
 assigned to a parent organisation unit is also treated as available for its
 descendant organisation units when generating a template."
 
-The app only supports strict, assigned-only matching today. This proposal
-changes the default to `assignedAndDescendants`, so upgrading does change
-generated templates for any instance that has category options assigned above
-the org units where they're actually used — that's the intended fix, since
-`assignedAndDescendants` is what matches DHIS2 Data Entry. An instance that
-wants to keep today's strict behavior after upgrading has to explicitly select
-`assigned` in Settings.
+The app only supports strict, assigned-only matching today, and `assigned`
+stays the default, so upgrading does not change generated templates. An
+instance that wants ancestry-aware matching, as in DHIS2 Data Entry, has to
+explicitly select `assignedAndDescendants` in Settings.
 
 ## 4. Worked example: exact-match mode
 
@@ -168,12 +160,13 @@ another dependency on presentation-layer settings code.
 Using the example hierarchy from Section 1. Category option `Partner A` assigned
 to `Country`.
 
-1. Set the filter mode to `assignedAndDescendants`. Generate templates for
-   `Country`, `District 1`, `Facility 1a`, and `Country 2`. Expect `Partner A`
-   on the first three, not the fourth.
-2. Switch to `assigned` and regenerate. Expect `Partner A` only on `Country`.
-3. Assign `Partner A` directly to `Facility 1a` as well. Still under `assigned`,
-   regenerate for `Facility 1a` — expect it to now appear there, and nowhere
-   else it wasn't already appearing.
-4. Switch back to `assignedAndDescendants` and regenerate for all four — expect
-   the original result from step 1.
+1. With the default (`assigned`), generate templates for `Country`,
+   `District 1`, `Facility 1a`, and `Country 2`. Expect `Partner A` only on
+   `Country`.
+2. Switch to `assignedAndDescendants` and regenerate. Expect `Partner A` on the
+   first three, not `Country 2`.
+3. Switch back to `assigned`. Assign `Partner A` directly to `Facility 1a` as
+   well, regenerate for `Facility 1a` — expect it to now appear there, and
+   nowhere else it wasn't already appearing.
+4. Switch to `assignedAndDescendants` again and regenerate for all four — expect
+   the result from step 2.

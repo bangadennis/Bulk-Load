@@ -1411,7 +1411,7 @@ function getCategoryComboIdByDataElementId(dataSet: any, metadata: any) {
         .value();
 }
 
-function getDataElementsForSectionDataSet(dataSet: any, metadata: any, cocsByCatComboId: any) {
+export function getDataElementsForSectionDataSet(dataSet: any, metadata: any, cocsByCatComboId: any) {
     const categoryComboIdByDataElementId = getCategoryComboIdByDataElementId(dataSet, metadata);
 
     const dataElementsInSections = _(dataSet.sections)
