@@ -37,6 +37,11 @@ function buildApi(): D2Api {
         }),
     });
 
+    // Org unit names for the template (/organisationUnits since DHIS2 v43, /metadata before)
+    api.models.organisationUnits.get = vi.fn().mockReturnValue({
+        getData: async () => ({ objects: [] }),
+    });
+
     return api;
 }
 
