@@ -217,7 +217,8 @@ export class ExcelReader {
                 this.readCellValue(template, dataSource.period, cell),
                 this.readCellValue(template, dataSource.dataElement, cell),
             ]);
-            if (!orgUnit || !period || !dataElement) return undefined;
+            // A blank org unit is kept (as in the row layout) so it can be overridden or reported as invalid
+            if (!period || !dataElement) return undefined;
 
             const dataFormId = await this.readCellValue(template, template.dataFormId, cell);
             if (!dataFormId) return undefined;

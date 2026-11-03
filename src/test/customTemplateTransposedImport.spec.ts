@@ -1,10 +1,11 @@
 import _ from "lodash";
 import { getCompositionRoot } from "../CompositionRoot";
 import { DataSetGenerated03, DataSetGenerated04 } from "../data/templates";
+import { DataPackage } from "../domain/entities/DataPackage";
 import { CustomTemplate, DataSource } from "../domain/entities/Template";
 import Settings from "../webapp/logic/settings";
 import { Workbook } from "../webapp/logic/Workbook";
-import { normalize, populateAndRead, populateAndReadWorkbook } from "./fixtures/dataSetLayouts";
+import { normalize, populateAndRead, populateAndReadWorkbook, value } from "./fixtures/dataSetLayouts";
 import { initializeMockServer } from "./mocks/server";
 
 /*
@@ -137,5 +138,27 @@ describe("Import is independent of the template (row layout, generated and custo
 
         expect(normalize(custom.result)).toEqual(reference);
         expect(_.uniq(reference.map(entry => entry.orgUnit))).toEqual(["OU1", "OU2", "OU3"]);
+    });
+    it("keeps the data entries of columns without org unit, so the import can override it", async () => {
+        const noOrgUnit = {
+            type: "dataSets",
+            dataEntries: [
+                {
+                    dataForm: "ds1",
+                    orgUnit: "",
+                    period: "202401",
+                    attribute: "COCDEFAULT",
+                    completed: false,
+                    dataValues: [value("DEA", "COCDEFAULT", "hello"), value("DEB", "COCFEMALE", "10")],
+                },
+            ],
+        } as unknown as DataPackage;
+
+        const template = buildCustomTemplate(buildDataSources());
+        const { result } = await populateAndReadWorkbook(template, await buildCustomWorkbook(), settings, noOrgUnit);
+
+        expect(result?.dataEntries).toHaveLength(1);
+        expect(result?.dataEntries[0]?.orgUnit).toEqual("");
+        expect(result?.dataEntries[0]?.dataValues).toHaveLength(2);
     });
 });

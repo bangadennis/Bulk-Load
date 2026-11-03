@@ -118,4 +118,29 @@ describe("Transposed data set template parity with the row layout", () => {
             _.range(0, 60).map(index => `text ${index}`)
         );
     });
+    it("keeps the data entries without org unit in both layouts, so the import can override it", async () => {
+        const noOrgUnit = {
+            type: "dataSets",
+            dataEntries: [
+                {
+                    dataForm: "ds1",
+                    orgUnit: "",
+                    period: "202401",
+                    attribute: "COCDEFAULT",
+                    completed: false,
+                    dataValues: [value("DEA", "COCDEFAULT", "hello"), value("DEB", "COCFEMALE", "10")],
+                },
+            ],
+        } as unknown as DataPackage;
+
+        for (const template of [row, transposed]) {
+            const workbook = await new SheetBuilder(buildDataSetParams(settings, template)).generate();
+            const excelRepository = registerWorkbook(template, workbook);
+            await buildBuilder(excelRepository).populateTemplate(template, noOrgUnit, settings, dataForm);
+            const result = await buildReader(excelRepository).readTemplate(template, dataForm);
+
+            expect(result?.dataEntries.map(entry => entry.orgUnit)).toEqual([""]);
+            expect(result?.dataEntries[0]?.dataValues).toHaveLength(2);
+        }
+    });
 });
